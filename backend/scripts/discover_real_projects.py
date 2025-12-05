@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 Discover real projects by analyzing a sample of all documents with LLM.
@@ -8,8 +9,15 @@ import json
 import pickle
 import random
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from collections import defaultdict
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 DATA_DIR = Path("club_data")
 client = OpenAI()
@@ -79,7 +87,7 @@ Be specific and content-based, not generic.
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",  # Use gpt-4o for better analysis
+            model=AZURE_CHAT_DEPLOYMENT,  # Use gpt-4o for better analysis
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" },  # Force JSON response
             temperature=0.3
@@ -121,7 +129,7 @@ Respond with just the theme number (1-{len(themes)}), or 0 if none match well.
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1
         )

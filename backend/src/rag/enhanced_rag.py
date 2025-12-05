@@ -1,3 +1,4 @@
+import os
 """
 Enhanced RAG Module with:
 - Query classification and expansion
@@ -15,9 +16,16 @@ import re
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
-from openai import OpenAI
+from openai import AzureOpenAI
 from functools import lru_cache
 import time
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Cross-encoder for re-ranking
 try:
@@ -169,7 +177,7 @@ Return as JSON:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Use mini for speed
+                model=AZURE_CHAT_DEPLOYMENT,  # Use mini for speed
                 messages=[
                     {"role": "system", "content": "You expand search queries for better retrieval."},
                     {"role": "user", "content": prompt}
@@ -387,7 +395,11 @@ class EnhancedRAG:
         use_mmr: bool = True,
         cache_queries: bool = True
     ):
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
         # Load embedding index
         print("Loading embedding index...")
@@ -414,7 +426,7 @@ class EnhancedRAG:
 
         # Get embedding from OpenAI
         response = self.client.embeddings.create(
-            model="text-embedding-3-small",
+            model="text-embedding-3-large",
             input=query
         )
         embedding = np.array(response.data[0].embedding, dtype=np.float32)
@@ -603,7 +615,7 @@ ANSWER:"""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Using GPT-4o as requested
+                model=AZURE_CHAT_DEPLOYMENT,  # Using GPT-4o as requested
                 messages=[
                     {
                         "role": "system",
@@ -663,7 +675,7 @@ Return JSON: {{"relevance": X, "grounding": X, "completeness": X, "overall": X}}
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Use mini for validation (faster, cheaper)
+                model=AZURE_CHAT_DEPLOYMENT,  # Use mini for validation (faster, cheaper)
                 messages=[
                     {"role": "system", "content": "You evaluate answer quality. Return only JSON."},
                     {"role": "user", "content": validation_prompt}

@@ -1,3 +1,4 @@
+import os
 """
 Question Generation System
 Generates targeted questions to extract tacit knowledge from employees
@@ -6,7 +7,14 @@ Generates targeted questions to extract tacit knowledge from employees
 import json
 from pathlib import Path
 from typing import Dict, List
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class QuestionGenerator:
@@ -20,7 +28,11 @@ class QuestionGenerator:
             api_key: OpenAI API key
             model: Model to use
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.model = model
 
     def generate_followup_questions(

@@ -24,13 +24,20 @@ import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
-from openai import OpenAI
+from openai import AzureOpenAI
 from sentence_transformers import SentenceTransformer
 import networkx as nx
 from networkx.algorithms import community
 
 # Load environment
 from dotenv import load_dotenv
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 load_dotenv()
 
 
@@ -74,7 +81,11 @@ class LLMFirstClusterer:
         cache_dir: str = None
     ):
         self.api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.embedding_model_name = embedding_model
         self.embedding_model = None  # Lazy load
 
@@ -173,7 +184,7 @@ Focus on CONCRETE deliverables, not vague mentions of work."""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 response_format={"type": "json_object"}
@@ -297,7 +308,7 @@ Be conservative with YES (high recall). Only say NO if clearly different project
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Fast for comparisons
+                model=AZURE_CHAT_DEPLOYMENT,  # Fast for comparisons
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 response_format={"type": "json_object"}
@@ -522,7 +533,7 @@ Respond in JSON:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 response_format={"type": "json_object"}
@@ -634,7 +645,7 @@ Respond in JSON:
 
                 try:
                     response = self.client.chat.completions.create(
-                        model="gpt-4o-mini",
+                        model=AZURE_CHAT_DEPLOYMENT,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.0,
                         response_format={"type": "json_object"}

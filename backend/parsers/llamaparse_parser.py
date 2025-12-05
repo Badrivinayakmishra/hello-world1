@@ -7,6 +7,13 @@ import os
 from pathlib import Path
 from typing import Dict, Optional, List
 import warnings
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 warnings.filterwarnings('ignore')
 
 try:
@@ -16,7 +23,7 @@ except ImportError:
     HAS_LLAMAPARSE = False
 
 try:
-    from openai import OpenAI
+    from openai import AzureOpenAI
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
@@ -69,7 +76,11 @@ class LlamaParseDocumentParser:
         if not api_key:
             raise ValueError("OPENAI_API_KEY not set in config")
 
-        self.openai_client = OpenAI(api_key=api_key)
+        self.openai_client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         print("✓ OpenAI client initialized")
 
     def can_parse(self, file_path: str) -> bool:

@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 Discover TRUE projects using LLM-first clustering.
@@ -13,9 +14,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
 import pickle
-from openai import OpenAI
+from openai import AzureOpenAI
 from clustering.llm_first_clusterer import LLMFirstClusterer
 from collections import defaultdict, Counter
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 DATA_DIR = Path("club_data")
 client = OpenAI()
@@ -99,7 +107,7 @@ Respond in JSON:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": summary}],
             response_format={"type": "json_object"},
             temperature=0.2

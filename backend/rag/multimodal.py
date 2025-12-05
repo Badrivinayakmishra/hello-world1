@@ -1,3 +1,4 @@
+import os
 """
 Multi-Modal Understanding Module
 Uses GPT-4o vision to interpret charts, graphs, and visual content.
@@ -8,8 +9,15 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Union
 from dataclasses import dataclass
-from openai import OpenAI
+from openai import AzureOpenAI
 import re
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2024-12-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 @dataclass
@@ -39,8 +47,12 @@ class MultiModalProcessor:
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or "os.getenv("OPENAI_API_KEY", "")"
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-4o"
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
+        self.model=AZURE_CHAT_DEPLOYMENT
 
     def encode_image(self, image_path: str) -> str:
         """Encode image to base64"""

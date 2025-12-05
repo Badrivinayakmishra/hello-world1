@@ -1,3 +1,4 @@
+import os
 """
 Complete KnowledgeVault Web Application
 Shows all methodology results in the frontend
@@ -7,11 +8,18 @@ from flask import Flask, render_template, request, jsonify
 import json
 import pickle
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from config.config import Config
 from gap_analysis.gap_analyzer import GapAnalyzer
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 app = Flask(__name__)
 
@@ -19,7 +27,11 @@ app = Flask(__name__)
 CLUB_DATA_DIR = Path(__file__).parent / "club_data"
 
 # Initialize OpenAI
-client = OpenAI(api_key=Config.OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
 # Global variables
 search_index = None
@@ -186,7 +198,7 @@ COMPREHENSIVE ANSWER:"""
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[
                 {
                     "role": "system",

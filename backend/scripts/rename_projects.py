@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 Rename existing projects using LLM analysis of their documents.
@@ -7,8 +8,15 @@ Takes the current canonical_projects.json and generates better names based on ac
 import json
 import pickle
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from collections import defaultdict
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 DATA_DIR = Path("club_data")
 client = OpenAI()
@@ -91,7 +99,7 @@ Bad: "Healthcare Project", "Consulting Work", "Team Documents"
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3
         )

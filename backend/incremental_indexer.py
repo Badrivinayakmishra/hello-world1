@@ -24,12 +24,19 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional, Set
 from datetime import datetime
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Configuration
 BATCH_SIZE = 50  # Documents per batch (safe for M3)
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_DIMENSIONS = 3072
 DATA_DIR = Path("/Users/rishitjain/Downloads/knowledgevault_backend/club_data")
 PROGRESS_FILE = DATA_DIR / "indexing_progress.json"
 TEMP_INDEX_FILE = DATA_DIR / "embedding_index_temp.pkl"
@@ -37,7 +44,7 @@ FINAL_INDEX_FILE = DATA_DIR / "embedding_index.pkl"
 BACKUP_INDEX_FILE = DATA_DIR / "embedding_index_backup.pkl"
 
 # Rate limiting
-REQUESTS_PER_MINUTE = 500  # OpenAI limit for text-embedding-3-small
+REQUESTS_PER_MINUTE = 500  # OpenAI limit for text-embedding-3-large
 DELAY_BETWEEN_BATCHES = 0.5  # seconds
 
 
@@ -49,7 +56,11 @@ class IncrementalIndexer:
             api_key = os.environ.get("OPENAI_API_KEY",
                 "os.getenv("OPENAI_API_KEY", "")")
 
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.progress = self._load_progress()
 
     def _load_progress(self) -> Dict:

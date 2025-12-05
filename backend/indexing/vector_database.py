@@ -1,3 +1,4 @@
+import os
 """
 Vector Database using ChromaDB
 Creates and manages vector embeddings for semantic search
@@ -9,9 +10,16 @@ from typing import Dict, List, Optional
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-from openai import OpenAI
+from openai import AzureOpenAI
 import numpy as np
 from tqdm import tqdm
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class VectorDatabaseBuilder:
@@ -49,7 +57,11 @@ class VectorDatabaseBuilder:
 
         # Initialize embedding model
         if use_openai_embeddings and openai_api_key:
-            self.openai_client = OpenAI(api_key=openai_api_key)
+            self.openai_client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
             self.embedding_model_name = "text-embedding-3-small"
             self.embedding_model = None
             print(f"✓ Using OpenAI embeddings: {self.embedding_model_name}")

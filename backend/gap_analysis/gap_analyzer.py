@@ -1,3 +1,4 @@
+import os
 """
 Gap Analysis Engine
 Analyzes clustered data to identify missing information and knowledge gaps
@@ -6,9 +7,16 @@ Analyzes clustered data to identify missing information and knowledge gaps
 import json
 from pathlib import Path
 from typing import Dict, List, Set
-from openai import OpenAI
+from openai import AzureOpenAI
 from collections import defaultdict
 import re
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class GapAnalyzer:
@@ -22,7 +30,11 @@ class GapAnalyzer:
             api_key: OpenAI API key
             model: Model to use for analysis
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.model = model
         self.gap_results = {}
 

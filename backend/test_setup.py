@@ -1,3 +1,4 @@
+import os
 """
 Quick Setup Test Script
 Tests that all dependencies are installed and configuration is correct
@@ -5,6 +6,13 @@ Tests that all dependencies are installed and configuration is correct
 
 import sys
 from pathlib import Path
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 def test_imports():
     """Test that all required packages can be imported"""
@@ -112,18 +120,22 @@ def test_openai():
     print("Testing OpenAI API...")
 
     try:
-        from openai import OpenAI
+        from openai import AzureOpenAI
         from config.config import Config
 
         if not Config.OPENAI_API_KEY:
             print("  ⚠ Skipping - API key not configured")
             return True
 
-        client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
         # Simple test call
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": "Say 'test successful' and nothing else."}],
             max_tokens=10,
         )

@@ -10,10 +10,17 @@ import json
 import base64
 from pathlib import Path
 from typing import Dict, List
-from openai import OpenAI
+from openai import AzureOpenAI
 from tqdm import tqdm
 from dotenv import load_dotenv
 import time
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 load_dotenv()
 
@@ -21,7 +28,11 @@ class TakeoutImageProcessor:
     """Process images from Google Takeout with OpenAI Vision"""
 
     def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.processed_images = []
 
     def encode_image(self, image_path: str) -> str:
@@ -50,7 +61,7 @@ class TakeoutImageProcessor:
 
             # Call Vision API
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Use GPT-4o for vision
+                model=AZURE_CHAT_DEPLOYMENT,  # Use GPT-4o for vision
                 messages=[
                     {
                         "role": "user",

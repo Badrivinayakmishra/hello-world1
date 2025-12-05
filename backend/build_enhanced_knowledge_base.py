@@ -14,15 +14,26 @@ import os
 from pathlib import Path
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import defaultdict
-from openai import OpenAI
+from openai import AzureOpenAI
 
 from config.config import Config
 from deduplicate_documents import deduplicate_documents, calculate_completeness_score, PLACEHOLDER_PATTERNS
 from message_filter_v2 import filter_messages_v2, calculate_professional_score_v2
 from project_clusterer import generate_project_name, load_cache, save_cache
 
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
+
 # Initialize OpenAI
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        ))
 
 # Target user
 TARGET_USER = "rishi2205"
@@ -281,7 +292,7 @@ Output format - one question per line, no numbering or bullets:"""
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {"role": "system", "content": "You generate specific technical questions about project documents to identify knowledge gaps."},
                     {"role": "user", "content": prompt}

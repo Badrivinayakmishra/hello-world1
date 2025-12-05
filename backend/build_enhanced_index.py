@@ -1,3 +1,4 @@
+import os
 """
 Enhanced Embedding Index Builder
 Uses semantic chunking instead of fixed-size token chunking
@@ -7,7 +8,7 @@ import json
 import pickle
 import numpy as np
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 import tiktoken
 from typing import List, Dict
 import time
@@ -20,15 +21,26 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from rag.semantic_chunker import SemanticChunker, create_chunker
 
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
+
 # Configuration
 DATA_DIR = Path('/Users/rishitjain/Downloads/knowledgevault_backend/club_data')
 OUTPUT_DIR = DATA_DIR
 OPENAI_API_KEY = "os.getenv("OPENAI_API_KEY", "")"
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_DIMENSIONS = 3072
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 tokenizer = tiktoken.encoding_for_model("gpt-4")
 
 

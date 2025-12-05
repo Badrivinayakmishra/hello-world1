@@ -1,3 +1,4 @@
+import os
 """
 Advanced RAG Index Builder with OpenAI Embeddings + Hierarchical Chunking
 Uses text-embedding-3-small for semantic search
@@ -7,25 +8,38 @@ import json
 import pickle
 import numpy as np
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 import tiktoken
 from typing import List, Dict, Tuple
 import time
 from rank_bm25 import BM25Okapi
 import re
 
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2024-12-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+AZURE_EMBEDDING_DEPLOYMENT = "text-embedding-3-large"
+AZURE_EMBEDDING_API_VERSION = "2024-12-01-preview"
+
+
 # Configuration
-DATA_DIR = Path('/Users/rishitjain/Downloads/knowledgevault_backend/club_data')
+DATA_DIR = Path('/Users/rishitjain/Downloads/2nd-brain/backend/club_data')
 OUTPUT_DIR = DATA_DIR
-OPENAI_API_KEY = "os.getenv("OPENAI_API_KEY", "")"
 
 # Chunking parameters
 CHUNK_SIZE = 600  # tokens
 CHUNK_OVERLAP = 100  # tokens
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_MODEL = AZURE_EMBEDDING_DEPLOYMENT
+EMBEDDING_DIMENSIONS = 3072  # text-embedding-3-large uses 3072 dimensions
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Use embedding API version for embeddings client
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_EMBEDDING_API_VERSION
+        )
 tokenizer = tiktoken.encoding_for_model("gpt-4")
 
 

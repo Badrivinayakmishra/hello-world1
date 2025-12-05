@@ -1,3 +1,4 @@
+import os
 """
 Display Methodology Results
 Shows you the AI-generated clusters, classifications, gaps, and questions
@@ -6,8 +7,15 @@ Shows you the AI-generated clusters, classifications, gaps, and questions
 import json
 from pathlib import Path
 from config.config import Config
-from openai import OpenAI
+from openai import AzureOpenAI
 from gap_analysis.gap_analyzer import GapAnalyzer
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 def show_project_clusters():
     """Show the AI-discovered project clusters"""

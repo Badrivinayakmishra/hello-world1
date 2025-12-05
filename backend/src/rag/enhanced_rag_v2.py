@@ -1,3 +1,4 @@
+import os
 """
 Enhanced RAG Module v2.1 - All Loopholes Fixed
 
@@ -28,11 +29,18 @@ import re
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Set
-from openai import OpenAI
+from openai import AzureOpenAI
 from functools import lru_cache
 from datetime import datetime
 import time
 from collections import defaultdict
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Cross-encoder for re-ranking
 try:
@@ -323,7 +331,7 @@ class QueryExpander:
         if self.client:
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=AZURE_CHAT_DEPLOYMENT,
                     messages=[
                         {"role": "system", "content": "Decompose complex questions into simple sub-questions. Return JSON array."},
                         {"role": "user", "content": f"Decompose this question into 2-4 simple sub-questions:\n\n{query}\n\nReturn as JSON: [\"question1\", \"question2\", ...]"}
@@ -799,7 +807,11 @@ class EnhancedRAGv2:
         use_mmr: bool = True,
         cache_results: bool = True
     ):
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
         # Load embedding index
         print("Loading embedding index...")
@@ -835,9 +847,12 @@ class EnhancedRAGv2:
         # Use the same model that was used to build the index
         index_model = self.index.get('model', 'text-embedding-3-small')
 
+        # Use dimensions=1536 to match existing index (built with text-embedding-3-small)
+        # text-embedding-3-large supports flexible dimensions via the dimensions parameter
         response = self.client.embeddings.create(
             model=index_model,
-            input=query
+            input=query,
+            dimensions=1536  # Match the existing index dimensions
         )
         embedding = np.array(response.data[0].embedding, dtype=np.float32)
 
@@ -1146,7 +1161,7 @@ Provide a well-cited answer following ALL rules above:"""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {
                         "role": "system",

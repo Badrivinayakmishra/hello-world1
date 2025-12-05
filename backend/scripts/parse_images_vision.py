@@ -8,10 +8,17 @@ import os
 import json
 import base64
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 import mimetypes
 from PIL import Image
 import io
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Configuration
 TAKEOUT_DIR = Path("/Users/rishitjain/Downloads/Takeout")
@@ -97,7 +104,7 @@ Respond in JSON:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[
                 {
                     "role": "user",

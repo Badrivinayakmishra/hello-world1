@@ -25,13 +25,20 @@ import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
-from openai import OpenAI
+from openai import AzureOpenAI
 from sentence_transformers import SentenceTransformer
 from hdbscan import HDBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Load environment
 from dotenv import load_dotenv
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 load_dotenv()
 
 
@@ -89,7 +96,11 @@ class IntelligentProjectClusterer:
             use_cache: Whether to use caching
         """
         self.api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.embedding_model_name = embedding_model
         self.embedding_model = None  # Lazy load
         self.use_cache = use_cache
@@ -195,7 +206,7 @@ IMPORTANT:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {"role": "system", "content": "You are a project analysis assistant. Extract project information from documents. Return only valid JSON."},
                     {"role": "user", "content": prompt}
@@ -470,7 +481,7 @@ IMPORTANT:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {"role": "system", "content": "You are a project naming assistant. Create clear, professional project names."},
                     {"role": "user", "content": prompt}

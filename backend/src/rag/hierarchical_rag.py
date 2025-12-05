@@ -1,3 +1,4 @@
+import os
 """
 Hierarchical RAG (Retrieval-Augmented Generation) Engine
 Combines Knowledge Graph and Vector Database for intelligent querying
@@ -6,8 +7,15 @@ Combines Knowledge Graph and Vector Database for intelligent querying
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from openai import OpenAI
+from openai import AzureOpenAI
 import re
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class HierarchicalRAG:
@@ -31,7 +39,11 @@ class HierarchicalRAG:
         """
         self.vector_db = vector_db
         self.knowledge_graph = knowledge_graph
-        self.client = OpenAI(api_key=api_key) if api_key else None
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        ) if api_key else None
         self.model = model
 
         print("✓ Hierarchical RAG initialized")

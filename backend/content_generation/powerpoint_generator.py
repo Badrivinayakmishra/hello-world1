@@ -1,3 +1,4 @@
+import os
 """
 PowerPoint Generator for Training Materials
 Creates professional PowerPoint presentations from knowledge base
@@ -10,7 +11,14 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class PowerPointGenerator:
@@ -24,7 +32,11 @@ class PowerPointGenerator:
             api_key: OpenAI API key
             model: LLM model to use
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
         self.model = model
 
     def generate_project_content(self, project_data: Dict) -> Dict:

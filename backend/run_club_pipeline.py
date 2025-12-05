@@ -13,7 +13,14 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import AgglomerativeClustering
 import numpy as np
 from tqdm import tqdm
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Configuration for Club Data
 CLUB_DATA_DIR = Path("/Users/rishitjain/Downloads/Takeout")
@@ -268,7 +275,11 @@ def generate_employee_summaries(employee_clusters, project_metadata):
     print("STEP 5: Generating Employee Summaries")
     print("-"*80)
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
     employee_summaries = {}
 
     for employee, docs in tqdm(employee_clusters.items(), desc="Generating summaries"):
@@ -288,7 +299,7 @@ Be specific and factual."""
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=150

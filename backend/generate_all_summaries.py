@@ -1,12 +1,20 @@
+import os
 """
 Generate AI summaries for all 150 employees
 """
 
 import json
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from config.config import Config
 from tqdm import tqdm
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 def generate_all_summaries():
     """Generate summaries for all employees"""
@@ -32,7 +40,11 @@ def generate_all_summaries():
     print(f"✓ Found {len(project_metadata)} employees total")
 
     # Initialize OpenAI
-    client = OpenAI(api_key=Config.OPENAI_API_KEY)
+    client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
     # Get employees that need summaries
     employees_to_process = []
@@ -85,7 +97,7 @@ Be specific and factual based on the email subjects."""
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=150

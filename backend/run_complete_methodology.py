@@ -1,3 +1,4 @@
+import os
 """
 Complete KnowledgeVault Methodology
 Includes: Work/Personal Classification, Gap Analysis, Question Generation
@@ -5,12 +6,19 @@ Includes: Work/Personal Classification, Gap Analysis, Question Generation
 
 import json
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from config.config import Config
 from classification.work_personal_classifier import WorkPersonalClassifier
 from gap_analysis.gap_analyzer import GapAnalyzer
 from gap_analysis.question_generator import QuestionGenerator
 from tqdm import tqdm
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 def classify_projects_for_employee(employee_name: str, classifier: WorkPersonalClassifier):
     """Classify all projects for an employee as work vs personal"""
@@ -153,7 +161,11 @@ def main():
     print()
 
     # Initialize components
-    client = OpenAI(api_key=Config.OPENAI_API_KEY)
+    client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
     classifier = WorkPersonalClassifier(client)
     analyzer = GapAnalyzer(api_key=Config.OPENAI_API_KEY)
     generator = QuestionGenerator(client)

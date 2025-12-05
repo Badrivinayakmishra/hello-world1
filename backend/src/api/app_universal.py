@@ -13,7 +13,7 @@ from flask_cors import CORS
 import json
 import pickle
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
@@ -30,7 +30,11 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
 # Global variables
 search_index = None
@@ -1341,6 +1345,13 @@ def api_feedback_stats():
 # Import datetime for feedback timestamps
 from datetime import datetime
 
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
+
 
 # ============================================================================
 # Intelligent Project Clustering API
@@ -1654,7 +1665,7 @@ Only return gaps you're confident about based on actual document content. Return
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -1769,7 +1780,7 @@ Only generate genuinely useful follow-ups. Return empty array if answer is compl
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             response_format={"type": "json_object"}
@@ -2040,7 +2051,7 @@ Return JSON:
 }}"""
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -2264,7 +2275,7 @@ def build_gamma_structured_input(topic: str, content: str, team_members: list) -
         """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=4000
@@ -2294,7 +2305,7 @@ def build_gamma_structured_input(topic: str, content: str, team_members: list) -
         """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=4000

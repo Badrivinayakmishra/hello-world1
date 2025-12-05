@@ -1,3 +1,4 @@
+import os
 """
 KnowledgeVault Web Application
 Flask-based frontend for querying the knowledge base
@@ -7,7 +8,7 @@ from flask import Flask, render_template, request, jsonify
 import json
 import pickle
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
@@ -16,8 +17,19 @@ app = Flask(__name__)
 # Load configuration
 from config.config import Config
 
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
+
 # Initialize OpenAI
-client = OpenAI(api_key=Config.OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
 # Add custom Jinja2 filter for number formatting
 @app.template_filter('format_number')
@@ -131,7 +143,7 @@ Answer:"""
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[
                 {
                     "role": "system",

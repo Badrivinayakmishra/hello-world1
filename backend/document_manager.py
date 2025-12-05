@@ -11,13 +11,20 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from openai import OpenAI
+from openai import AzureOpenAI
 
 # Import parsers
 from parsers.llamaparse_parser import LlamaParseDocumentParser as LlamaParseParser
 
 # Import classifier
 from classification.work_personal_classifier import WorkPersonalClassifier
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 
 class DocumentManager:
@@ -46,7 +53,11 @@ class DocumentManager:
             api_key: OpenAI API key
             llamaparse_key: LlamaParse API key
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
         # Initialize LlamaParse parser (optional - only needed for document uploads)
         if llamaparse_key:
@@ -66,7 +77,7 @@ class DocumentManager:
             print("ℹ️  LlamaParse not configured (optional - only needed for document uploads)")
             self.parser = None
 
-        self.classifier = WorkPersonalClassifier(api_key, model="gpt-4o-mini")
+        self.classifier = WorkPersonalClassifier(api_key, model=AZURE_CHAT_DEPLOYMENT)
 
         # Create directories
         self.UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -205,7 +216,7 @@ Guidelines:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {
                         "role": "system",

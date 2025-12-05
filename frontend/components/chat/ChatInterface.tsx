@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
+import { useAuth } from '@/contexts/AuthContext'
 
 const API_BASE = 'http://localhost:5003/api'
 
@@ -44,19 +45,40 @@ const WelcomeCard = ({ icon, title, description, onClick }: any) => (
 )
 
 export default function ChatInterface() {
+  const { user, token, isLoading: authLoading, logout } = useAuth()
   const [activeItem, setActiveItem] = useState('ChatBot')
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Auth headers for API calls
+  const getAuthHeaders = () => ({
+    'Authorization': token ? `Bearer ${token}` : '',
+    'X-Tenant': user?.tenant || '',
+    'Content-Type': 'application/json'
+  })
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // useEffect must be called before any conditional returns
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Show loading while checking auth (after all hooks)
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-primary">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return
@@ -72,9 +94,11 @@ export default function ChatInterface() {
     setIsLoading(true)
 
     try {
-      // Use Enhanced RAG v2.1 endpoint
+      // Use Enhanced RAG v2.1 endpoint with auth headers
       const response = await axios.post(`${API_BASE}/search`, {
         query: inputValue,
+      }, {
+        headers: getAuthHeaders()
       })
 
       // RAG response includes answer, sources, confidence, etc.
@@ -187,6 +211,8 @@ export default function ChatInterface() {
         answer: message.text,
         rating: rating,
         source_ids: message.sources?.map(s => s.doc_id) || []
+      }, {
+        headers: getAuthHeaders()
       })
       // Visual feedback - could add toast notification here
       console.log(`Feedback recorded: ${rating}`)
@@ -222,7 +248,7 @@ export default function ChatInterface() {
             />
 
             {/* New Chat Button */}
-            <button 
+            <button
               onClick={() => setMessages([])}
               className="flex items-center justify-center gap-3 px-4 h-[42px] rounded bg-secondary hover:bg-opacity-80 transition-colors whitespace-nowrap"
             >
@@ -230,6 +256,21 @@ export default function ChatInterface() {
                 New Chat
               </span>
             </button>
+
+            {/* User info and logout */}
+            <div className="flex items-center gap-3">
+              <span className="text-neutral-600 font-sans text-sm">
+                {user?.tenant?.toUpperCase()}
+              </span>
+              <button
+                onClick={logout}
+                className="flex items-center justify-center gap-2 px-3 h-[42px] rounded bg-gray-200 hover:bg-gray-300 transition-colors"
+              >
+                <span className="text-neutral-800 font-sans text-sm font-medium">
+                  Logout
+                </span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -247,7 +288,7 @@ export default function ChatInterface() {
                     <Image src="/Maya.png" alt="Rishit" width={80} height={80} />
                   </div>
                   <h2 className="text-neutral-800 font-work text-2xl font-semibold mb-2">
-                    Welcome, Rishit
+                    Welcome, {user?.name?.split(' ')[0] || 'User'}
                   </h2>
                   <p className="text-gray-600 font-sans text-sm">
                     Start by scripting a task, and let the chat take over.

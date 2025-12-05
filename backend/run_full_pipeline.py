@@ -1,3 +1,4 @@
+import os
 """
 Full Pipeline for All Enron Data
 Python 3.14 compatible version
@@ -13,7 +14,7 @@ import pickle
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config.config import Config
-from openai import OpenAI
+from openai import AzureOpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
@@ -50,6 +51,13 @@ print("STEP 2: Clustering by Employee")
 print("-"*80)
 
 from clustering.employee_clustering import EmployeeClusterer
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 clusterer = EmployeeClusterer()
 clusterer.cluster_by_employee(emails)
@@ -183,7 +191,11 @@ print("\n" + "="*80)
 print("STEP 5: Generating Employee Summaries")
 print("-"*80)
 
-client = OpenAI(api_key=Config.OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
 employee_summaries = {}
 
@@ -213,7 +225,7 @@ Be specific and factual based on the email subjects."""
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=150

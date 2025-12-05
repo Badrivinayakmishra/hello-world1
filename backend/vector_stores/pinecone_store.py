@@ -14,7 +14,14 @@ import time
 import hashlib
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Pinecone imports
 try:
@@ -63,7 +70,11 @@ class PineconeVectorStore:
 
         self.config = config
         self.pc = Pinecone(api_key=config.api_key)
-        self.openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+        self.openai = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        ))
 
         # Initialize or get index
         self.index = self._init_index()

@@ -26,13 +26,22 @@ import pickle
 import numpy as np
 import re
 import hashlib
+import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Set
-from openai import OpenAI
+from openai import AzureOpenAI
 from functools import lru_cache
 from datetime import datetime
 import time
 from collections import defaultdict
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2024-12-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+AZURE_EMBEDDING_DEPLOYMENT = "text-embedding-3-large"
+AZURE_EMBEDDING_API_VERSION = "2023-05-15"
 
 # Cross-encoder for re-ranking
 try:
@@ -286,7 +295,7 @@ class QueryExpander:
         'recommendation': ['suggestion', 'proposal', 'advice', 'guidance'],
     }
 
-    def __init__(self, client: OpenAI = None):
+    def __init__(self, client: AzureOpenAI = None):
         self.client = client
 
     def expand_acronyms(self, query: str) -> str:
@@ -323,7 +332,7 @@ class QueryExpander:
         if self.client:
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=AZURE_CHAT_DEPLOYMENT,
                     messages=[
                         {"role": "system", "content": "Decompose complex questions into simple sub-questions. Return JSON array."},
                         {"role": "user", "content": f"Decompose this question into 2-4 simple sub-questions:\n\n{query}\n\nReturn as JSON: [\"question1\", \"question2\", ...]"}
@@ -484,7 +493,7 @@ class MMRSelector:
 class HallucinationDetector:
     """Detect and flag potential hallucinations in answers"""
 
-    def __init__(self, client: OpenAI):
+    def __init__(self, client: AzureOpenAI):
         self.client = client
 
     def extract_claims(self, answer: str) -> List[Dict]:
@@ -794,12 +803,16 @@ class EnhancedRAGv2:
     def __init__(
         self,
         embedding_index_path: str,
-        openai_api_key: str,
+        openai_api_key: str = None,  # Kept for backward compatibility, but not used
         use_reranker: bool = True,
         use_mmr: bool = True,
         cache_results: bool = True
     ):
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
         # Load embedding index
         print("Loading embedding index...")
@@ -832,12 +845,16 @@ class EnhancedRAGv2:
         if cache_key in self.embedding_cache:
             return self.embedding_cache[cache_key]
 
-        # Use the same model that was used to build the index
-        index_model = self.index.get('model', 'text-embedding-3-small')
+        # Use the embedding deployment available in Azure
+        # Note: Ideally should match the index model, but using available deployment
+        embedding_model = AZURE_EMBEDDING_DEPLOYMENT  # text-embedding-3-large
 
+        # Use dimensions=1536 to match existing index (built with text-embedding-3-small)
+        # text-embedding-3-large supports flexible dimensions via the dimensions parameter
         response = self.client.embeddings.create(
-            model=index_model,
-            input=query
+            model=embedding_model,
+            input=query,
+            dimensions=1536  # Match the existing index dimensions
         )
         embedding = np.array(response.data[0].embedding, dtype=np.float32)
 
@@ -1146,7 +1163,7 @@ Provide a well-cited answer following ALL rules above:"""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {
                         "role": "system",
@@ -1346,19 +1363,15 @@ You will be evaluated on citation accuracy. Uncited claims are considered failur
 
 def create_enhanced_rag_v2(
     index_path: str = None,
-    api_key: str = None
+    api_key: str = None  # Not used anymore, Azure config is used instead
 ) -> EnhancedRAGv2:
     """Create EnhancedRAGv2 instance"""
 
     if index_path is None:
         index_path = "/Users/rishitjain/Downloads/knowledgevault_backend/club_data/embedding_index.pkl"
 
-    if api_key is None:
-        api_key = "os.getenv("OPENAI_API_KEY", "")"
-
     return EnhancedRAGv2(
         embedding_index_path=index_path,
-        openai_api_key=api_key,
         use_reranker=True,
         use_mmr=True,
         cache_results=True

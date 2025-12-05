@@ -15,10 +15,21 @@ import re
 import os
 from typing import Dict, List, Tuple
 from collections import defaultdict
-from openai import OpenAI
+from openai import AzureOpenAI
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 # Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        ))
 
 # ============================================================================
 # STAGE 1: DEFINITE PERSONAL MESSAGES (Auto-exclude)
@@ -398,7 +409,7 @@ Reply with ONLY numbers and W or P (e.g., "1W 2P 3W 4P..."):"""
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=AZURE_CHAT_DEPLOYMENT,
                 messages=[
                     {"role": "system", "content": "Classify messages as W (work) or P (personal). Reply compactly like: 1W 2P 3W"},
                     {"role": "user", "content": prompt}

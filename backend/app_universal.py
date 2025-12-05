@@ -8,29 +8,84 @@ Complete workflow with all steps:
 - Step 4: Stakeholder Map
 """
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 import json
 import pickle
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import secrets
+import hashlib
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend on different port
+app.secret_key = secrets.token_hex(32)  # For session management
+CORS(app, supports_credentials=True)  # Enable CORS with credentials for sessions
+
+# ============================================================================
+# MULTI-TENANT AUTHENTICATION
+# ============================================================================
+
+# Hardcoded users with tenant mapping
+USERS = {
+    "rishi2205@ucla.edu": {
+        "password": "BEAT",
+        "tenant": "beat",
+        "name": "Rishi Jain (BEAT)",
+        "data_dir": "club_data"
+    },
+    "rishitjain2205@gmail.com": {
+        "password": "Enron",
+        "tenant": "enron",
+        "name": "Rishi Jain (Enron)",
+        "data_dir": "data"
+    }
+}
+
+# Active sessions: token -> user info
+active_sessions = {}
+
+def generate_token():
+    """Generate a secure session token"""
+    return secrets.token_hex(32)
+
+def hash_password(password):
+    """Simple password hashing (for demo - use bcrypt in production)"""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # Configuration
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "club_data"
 TARGET_USER = "rishi2205"
 
-# Load OpenAI API key
+# Current tenant data directories (set after login)
+TENANT_DATA_DIRS = {
+    "beat": BASE_DIR / "club_data",
+    "enron": BASE_DIR / "data"
+}
+
+# Default DATA_DIR (set dynamically based on tenant, defaults to beat)
+DATA_DIR = TENANT_DATA_DIRS["beat"]
+
+# Tenant-specific RAG instances
+tenant_rag_instances = {}
+tenant_data_loaded = {}
+
+# Azure OpenAI Configuration
 import os
 from dotenv import load_dotenv
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-client = OpenAI(api_key=OPENAI_API_KEY)
+
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2024-12-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
+client = AzureOpenAI(
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_API_KEY,
+    api_version=AZURE_API_VERSION
+)
 
 # Global variables
 search_index = None
@@ -52,8 +107,44 @@ def format_number(value):
         return value
 
 
+def load_data_for_tenant(tenant: str = "beat"):
+    """Load the knowledge base for a specific tenant"""
+    global tenant_rag_instances, tenant_data_loaded
+
+    if tenant in tenant_data_loaded and tenant_data_loaded[tenant]:
+        print(f"✓ Data already loaded for tenant: {tenant}")
+        return tenant_rag_instances.get(tenant)
+
+    print(f"Loading data for tenant: {tenant}...")
+
+    tenant_dir = TENANT_DATA_DIRS.get(tenant, TENANT_DATA_DIRS["beat"])
+
+    # Initialize Enhanced RAG for this tenant
+    try:
+        from rag.enhanced_rag_v2 import EnhancedRAGv2
+        embedding_index_path = str(tenant_dir / "embedding_index.pkl")
+        if Path(embedding_index_path).exists():
+            rag_instance = EnhancedRAGv2(
+                embedding_index_path=embedding_index_path,
+                openai_api_key=AZURE_OPENAI_API_KEY,
+                use_reranker=True,
+                use_mmr=True,
+                cache_results=True
+            )
+            tenant_rag_instances[tenant] = rag_instance
+            tenant_data_loaded[tenant] = True
+            print(f"✓ Enhanced RAG v2.0 initialized for tenant: {tenant}")
+            return rag_instance
+        else:
+            print(f"⚠ No embedding index found for tenant: {tenant}")
+            return None
+    except Exception as e:
+        print(f"⚠ Failed to load RAG for tenant {tenant}: {e}")
+        return None
+
+
 def load_data():
-    """Load the knowledge base for rishi2205"""
+    """Load the knowledge base for default tenant (beat)"""
     global search_index, embedding_index, knowledge_gaps, user_spaces, kb_metadata, enhanced_rag, stakeholder_graph, connector_manager, document_manager
 
     print("Loading data...")
@@ -106,7 +197,7 @@ def load_data():
         embedding_index_path = str(DATA_DIR / "embedding_index.pkl")
         enhanced_rag = EnhancedRAGv2(
             embedding_index_path=embedding_index_path,
-            openai_api_key=OPENAI_API_KEY,
+            openai_api_key=AZURE_OPENAI_API_KEY,
             use_reranker=True,
             use_mmr=True,
             cache_results=True
@@ -119,7 +210,7 @@ def load_data():
             embedding_index_path = str(DATA_DIR / "embedding_index.pkl")
             enhanced_rag = EnhancedRAG(
                 embedding_index_path=embedding_index_path,
-                openai_api_key=OPENAI_API_KEY,
+                openai_api_key=AZURE_OPENAI_API_KEY,
                 use_reranker=True,
                 use_mmr=True,
                 cache_queries=True
@@ -165,7 +256,7 @@ def load_data():
         from document_manager import DocumentManager
         LLAMAPARSE_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
         document_manager = DocumentManager(
-            api_key=OPENAI_API_KEY,
+            api_key=AZURE_OPENAI_API_KEY,
             llamaparse_key=LLAMAPARSE_KEY
         )
         print("✓ Document manager initialized")
@@ -174,6 +265,104 @@ def load_data():
         document_manager = None
 
     print("✓ Data loaded successfully\n")
+
+
+# ============================================================================
+# AUTHENTICATION ROUTES
+# ============================================================================
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """
+    Login endpoint - validates credentials and returns session token with tenant info
+    """
+    data = request.get_json()
+    email = data.get('email', '').lower().strip()
+    password = data.get('password', '')
+
+    # Check if user exists
+    if email not in USERS:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid email or password'
+        }), 401
+
+    user = USERS[email]
+
+    # Check password (simple comparison for demo)
+    if password != user['password']:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid email or password'
+        }), 401
+
+    # Generate session token
+    token = generate_token()
+
+    # Store session
+    active_sessions[token] = {
+        'email': email,
+        'tenant': user['tenant'],
+        'name': user['name'],
+        'data_dir': user['data_dir']
+    }
+
+    return jsonify({
+        'success': True,
+        'token': token,
+        'user': {
+            'email': email,
+            'name': user['name'],
+            'tenant': user['tenant']
+        }
+    })
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """Logout - invalidate session token"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if token in active_sessions:
+        del active_sessions[token]
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/auth/me')
+def api_auth_me():
+    """Get current user info from token"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if token not in active_sessions:
+        return jsonify({
+            'success': False,
+            'error': 'Not authenticated'
+        }), 401
+
+    user_session = active_sessions[token]
+    return jsonify({
+        'success': True,
+        'user': {
+            'email': user_session['email'],
+            'name': user_session['name'],
+            'tenant': user_session['tenant']
+        }
+    })
+
+
+def get_current_tenant():
+    """Helper to get current tenant from request headers"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if token in active_sessions:
+        return active_sessions[token]['tenant']
+    return 'beat'  # Default fallback
+
+
+def get_current_data_dir():
+    """Helper to get current data directory based on tenant"""
+    tenant = get_current_tenant()
+    return TENANT_DATA_DIRS.get(tenant, TENANT_DATA_DIRS['beat'])
 
 
 # ============================================================================
@@ -504,7 +693,7 @@ def gmail_sync():
 
                 # Run LLM-first high-accuracy clustering
                 clusterer = LLMFirstClusterer(
-                    openai_api_key=OPENAI_API_KEY,
+                    openai_api_key=AZURE_OPENAI_API_KEY,
                     cache_dir=str(DATA_DIR / "llm_cluster_cache")
                 )
 
@@ -785,11 +974,15 @@ def api_answer_question_v1():
 
 @app.route('/api/search', methods=['POST'])
 def api_search():
-    """Search the knowledge base"""
-    global enhanced_rag, stakeholder_graph
+    """Search the knowledge base - tenant-aware"""
+    global enhanced_rag, stakeholder_graph, tenant_rag_instances
 
     data = request.get_json()
     query = data.get('query', '')
+
+    # Get tenant from auth header
+    tenant = get_current_tenant()
+    print(f"[Search] Tenant: {tenant}, Query: {query[:50]}...")
 
     if not query:
         return jsonify({'error': 'No query provided'}), 400
@@ -858,10 +1051,17 @@ def api_search():
             'sources': []
         })
 
-    # Use enhanced RAG for regular queries
-    if enhanced_rag:
+    # Get or create tenant-specific RAG instance
+    tenant_rag = tenant_rag_instances.get(tenant)
+    if not tenant_rag:
+        tenant_rag = load_data_for_tenant(tenant)
+
+    # Use tenant-specific RAG, or fall back to default
+    rag_to_use = tenant_rag or enhanced_rag
+
+    if rag_to_use:
         try:
-            result = enhanced_rag.query(query)
+            result = rag_to_use.query(query)
 
             # Convert numpy types to native Python types for JSON serialization
             def convert_numpy(obj):
@@ -885,6 +1085,7 @@ def api_search():
                 'answer': result.get('answer', 'No answer generated'),
                 'sources': sources,
                 'search_type': 'enhanced_rag',
+                'tenant': tenant,
                 'num_sources': int(result.get('num_sources', 0)),
                 'confidence': float(result.get('confidence', 0)),
                 'query_type': result.get('query_type', 'unknown'),
@@ -1530,7 +1731,7 @@ def api_reprocess_projects():
 
         # Initialize LLM-first clusterer
         clusterer = LLMFirstClusterer(
-            openai_api_key=OPENAI_API_KEY,
+            openai_api_key=AZURE_OPENAI_API_KEY,
             cache_dir=str(DATA_DIR / "llm_cluster_cache")
         )
 
@@ -1654,7 +1855,7 @@ Only return gaps you're confident about based on actual document content. Return
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -1769,7 +1970,7 @@ Only generate genuinely useful follow-ups. Return empty array if answer is compl
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             response_format={"type": "json_object"}
@@ -2040,7 +2241,7 @@ Return JSON:
 }}"""
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -2264,7 +2465,7 @@ def build_gamma_structured_input(topic: str, content: str, team_members: list) -
         """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=4000
@@ -2294,7 +2495,7 @@ def build_gamma_structured_input(topic: str, content: str, team_members: list) -
         """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=AZURE_CHAT_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=4000

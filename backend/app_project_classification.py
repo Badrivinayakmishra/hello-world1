@@ -1,3 +1,4 @@
+import os
 """
 KnowledgeVault Web Application with Global Project Classification
 Displays employee-project mappings and project information
@@ -6,8 +7,15 @@ Displays employee-project mappings and project information
 from flask import Flask, render_template, request, jsonify
 import json
 from pathlib import Path
-from openai import OpenAI
+from openai import AzureOpenAI
 from datetime import datetime
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"
+
 
 app = Flask(__name__)
 
@@ -24,7 +32,11 @@ current_output_dir = CLUB_OUTPUT_DIR
 
 # Initialize OpenAI
 OPENAI_API_KEY = "os.getenv("OPENAI_API_KEY", "")"
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = AzureOpenAI(
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_API_VERSION
+        )
 
 
 def load_classification_data(output_dir: Path):
