@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
@@ -14,6 +14,17 @@ interface Message {
   isUser: boolean
   sources?: any[]
   sourceMap?: { [key: string]: { name: string; doc_id: string } }
+}
+
+interface Conversation {
+  id: string
+  title: string | null
+  created_at: string
+  updated_at: string
+  last_message_at: string
+  is_archived: boolean
+  is_pinned: boolean
+  message_count: number
 }
 
 const WelcomeCard = ({ icon, title, description, onClick }: any) => (
@@ -52,6 +63,11 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Chat History State
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
+
   // Auth headers for API calls
   const getAuthHeaders = () => ({
     'Authorization': token ? `Bearer ${token}` : '',
@@ -63,10 +79,112 @@ export default function ChatInterface() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // Fetch chat history
+  const fetchConversations = useCallback(async () => {
+    if (!token) return
+    setIsLoadingHistory(true)
+    try {
+      const response = await axios.get(`${API_BASE}/chat/conversations`, {
+        headers: getAuthHeaders()
+      })
+      if (response.data.success) {
+        setConversations(response.data.conversations || [])
+      }
+    } catch (error) {
+      console.error('Error fetching conversations:', error)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }, [token])
+
+  // Load a specific conversation
+  const loadConversation = async (conversationId: string) => {
+    try {
+      const response = await axios.get(`${API_BASE}/chat/conversations/${conversationId}`, {
+        headers: getAuthHeaders()
+      })
+      if (response.data.success) {
+        const conv = response.data.conversation
+        // Convert backend messages to frontend format
+        const loadedMessages: Message[] = conv.messages.map((m: any) => ({
+          id: m.id,
+          text: m.content,
+          isUser: m.role === 'user',
+          sources: m.sources || [],
+        }))
+        setMessages(loadedMessages)
+        setCurrentConversationId(conversationId)
+        setActiveTab('chat')
+      }
+    } catch (error) {
+      console.error('Error loading conversation:', error)
+    }
+  }
+
+  // Save message to current conversation
+  const saveMessage = async (role: 'user' | 'assistant', content: string, sources?: any[]) => {
+    if (!currentConversationId) return
+    try {
+      await axios.post(
+        `${API_BASE}/chat/conversations/${currentConversationId}/messages`,
+        { role, content, sources: sources || [] },
+        { headers: getAuthHeaders() }
+      )
+    } catch (error) {
+      console.error('Error saving message:', error)
+    }
+  }
+
+  // Create new conversation
+  const createNewConversation = async (): Promise<string | null> => {
+    try {
+      const response = await axios.post(
+        `${API_BASE}/chat/conversations`,
+        {},
+        { headers: getAuthHeaders() }
+      )
+      if (response.data.success) {
+        return response.data.conversation.id
+      }
+    } catch (error) {
+      console.error('Error creating conversation:', error)
+    }
+    return null
+  }
+
+  // Delete conversation
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      await axios.delete(`${API_BASE}/chat/conversations/${conversationId}`, {
+        headers: getAuthHeaders()
+      })
+      setConversations(prev => prev.filter(c => c.id !== conversationId))
+      if (currentConversationId === conversationId) {
+        setMessages([])
+        setCurrentConversationId(null)
+      }
+    } catch (error) {
+      console.error('Error deleting conversation:', error)
+    }
+  }
+
   // useEffect must be called before any conditional returns
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch conversations on mount and when token changes
+  useEffect(() => {
+    if (token) {
+      fetchConversations()
+    }
+  }, [token, fetchConversations])
+
+  // Handler for starting new chat
+  const handleNewChat = () => {
+    setMessages([])
+    setCurrentConversationId(null)
+  }
 
   // Show loading while checking auth (after all hooks)
   if (authLoading) {
@@ -90,13 +208,28 @@ export default function ChatInterface() {
     }
 
     setMessages(prev => [...prev, userMessage])
+    const queryText = inputValue
     setInputValue('')
     setIsLoading(true)
+
+    // Create new conversation if needed
+    let convId = currentConversationId
+    if (!convId) {
+      convId = await createNewConversation()
+      if (convId) {
+        setCurrentConversationId(convId)
+      }
+    }
+
+    // Save user message to conversation
+    if (convId) {
+      saveMessage('user', queryText)
+    }
 
     try {
       // Use Enhanced RAG v2.1 endpoint with auth headers
       const response = await axios.post(`${API_BASE}/search`, {
-        query: inputValue,
+        query: queryText,
       }, {
         headers: getAuthHeaders()
       })
@@ -146,20 +279,27 @@ export default function ChatInterface() {
         return match
       })
 
+      const aiSources = response.data.sources?.map((s: any) => ({
+        doc_id: s.doc_id || s.chunk_id,
+        subject: s.metadata?.file_name || s.doc_id || s.chunk_id,
+        project: s.metadata?.project || 'Unknown',
+        score: s.rerank_score || s.score,
+        content: s.content?.substring(0, 200) + '...'
+      }))
+
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: cleanedAnswer,
         isUser: false,
-        sources: response.data.sources?.map((s: any) => ({
-          doc_id: s.doc_id || s.chunk_id,
-          subject: s.metadata?.file_name || s.doc_id || s.chunk_id,
-          project: s.metadata?.project || 'Unknown',
-          score: s.rerank_score || s.score,
-          content: s.content?.substring(0, 200) + '...'
-        })),
+        sources: aiSources,
         sourceMap: sourceMapData,
       }
       setMessages(prev => [...prev, aiMessage])
+
+      // Save AI response to conversation
+      if (convId) {
+        saveMessage('assistant', cleanedAnswer, aiSources)
+      }
     } catch (error) {
       console.error('Error:', error)
       const errorMessage: Message = {
@@ -224,14 +364,23 @@ export default function ChatInterface() {
   return (
     <div className="flex h-screen bg-primary overflow-hidden">
       {/* Sidebar - Always Visible */}
-      <Sidebar activeItem={activeItem} onItemClick={setActiveItem} />
+      <Sidebar
+        activeItem={activeItem}
+        onItemClick={setActiveItem}
+        conversations={conversations}
+        currentConversationId={currentConversationId}
+        onLoadConversation={loadConversation}
+        onDeleteConversation={deleteConversation}
+        onNewChat={handleNewChat}
+        isLoadingHistory={isLoadingHistory}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
         <div className="flex items-center px-8 py-4 bg-primary">
-          {/* Left side - align with orange box */}
-          <div className="flex-1 flex justify-center">
+          {/* Left side - Chatbot title (adjust ml-X to move left/right) */}
+          <div className="flex-1 flex justify-start ml-4">
             <h1 className="text-neutral-800 font-work text-xl font-semibold">
               Chatbot
             </h1>
@@ -249,7 +398,7 @@ export default function ChatInterface() {
 
             {/* New Chat Button */}
             <button
-              onClick={() => setMessages([])}
+              onClick={handleNewChat}
               className="flex items-center justify-center gap-3 px-4 h-[42px] rounded bg-secondary hover:bg-opacity-80 transition-colors whitespace-nowrap"
             >
               <span className="text-neutral-800 font-sans text-sm font-medium">
@@ -276,7 +425,7 @@ export default function ChatInterface() {
 
         {/* Chat Area */}
         <div className="flex-1 flex items-center justify-center px-8 py-4 overflow-hidden">
-          <div 
+          <div
             className="flex flex-col justify-end items-center gap-5 bg-secondary rounded-3xl shadow-sm p-5 h-full max-h-[calc(100vh-120px)] w-full"
             style={{ maxWidth: '1000px' }}
           >
@@ -302,9 +451,9 @@ export default function ChatInterface() {
                 <div className="grid grid-cols-3 gap-3 w-full max-w-3xl px-4">
                   <WelcomeCard
                     icon="/Project.svg"
-                    title="Summarize Project"
+                    title="Summarize Research"
                     description="Derive highlights from past partnerships."
-                    onClick={() => handleQuickAction("Summarize the ERCOT project")}
+                    onClick={() => handleQuickAction("Summarize ... research for me")}
                   />
                   <WelcomeCard
                     icon="/PPT.svg"

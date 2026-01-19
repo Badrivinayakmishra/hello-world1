@@ -1,0 +1,285 @@
+================================================================================
+CONNECTOR ISOLATION THREAT MODEL
+================================================================================
+
+CURRENT ARCHITECTURE & THREAT VECTORS
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        MULTI-TENANT SYSTEM                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+    │   Tenant A   │       │   Tenant B   │       │   Tenant C   │
+    │   (Secure)   │       │   (Target)   │       │   (Target)   │
+    └──────────────┘       └──────────────┘       └──────────────┘
+           │                      │                      │
+           │                      │                      │
+    ┌──────────────────────────────────────────────────────────────┐
+    │            Flask API Server (Single Process)               │
+    │                                                            │
+    │  ┌────────────────────────────────────────────────────┐   │
+    │  │ oauth_states = {} (In-Memory Dictionary)           │   │
+    │  │ - State for Tenant A: "abc123"                     │   │
+    │  │ - State for Tenant B: "def456" ← VULNERABILITY    │   │
+    │  │ - State for Tenant C: "ghi789"                     │   │
+    │  │                                                    │   │
+    │  │ NO EXPIRATION, NO CLEANUP, SHARED MEMORY           │   │
+    │  └────────────────────────────────────────────────────┘   │
+    │                                                            │
+    │  ┌────────────────────────────────────────────────────┐   │
+    │  │ OAUTH CALLBACK HANDLER                             │   │
+    │  │                                                    │   │
+    │  │ def gmail_callback():                              │   │
+    │  │   state = request.args.get('state')               │   │
+    │  │   state_data = oauth_states.pop(state) ← WEAK     │   │
+    │  │   if not state_data or state_data["type"]!="gmail"│   │
+    │  │      return error                                  │   │
+    │  │                                                    │   │
+    │  │   NO tenant_id validation here! ← BUG             │   │
+    │  │   connector = db.query(Connector).filter(          │   │
+    │  │      tenant_id == state_data["tenant_id"]  ← OK   │   │
+    │  │   )                                                │   │
+    │  └────────────────────────────────────────────────────┘   │
+    └──────────────────────────────────────────────────────────────┘
+           │
+           │
+    ┌──────────────────────────────────────────────────────────────┐
+    │               PostgreSQL Database                           │
+    │                                                            │
+    │  Connector Table:                                         │
+    │  ┌─────────────────────────────────────────────────────┐ │
+    │  │ ID  │ Tenant │ Type  │ access_token │ refresh_token│ │
+    │  ├─────┼────────┼───────┼──────────────┼──────────────┤ │
+    │  │C1   │TenantA │Gmail  │ PLAINTEXT... │ PLAINTEXT...│ │
+    │  │C2   │TenantB │Slack  │ PLAINTEXT... │ PLAINTEXT...│◄─── CRITICAL
+    │  │C3   │TenantC │Box    │ PLAINTEXT... │ PLAINTEXT...│ │   CWE-312
+    │  └─────┴────────┴───────┴──────────────┴──────────────┘ │
+    │                                                            │
+    │  Documents Table:                                         │
+    │  ┌─────────────────────────────────────────────────────┐ │
+    │  │ ID  │ Tenant │ Connector │ Content │ ...           │ │
+    │  ├─────┼────────┼───────────┼─────────┼───────────────┤ │
+    │  │D1   │TenantA │C1         │ Email 1 │ ✓ Isolated   │ │
+    │  │D2   │TenantB │C2         │ Chat 1  │ ✓ Isolated   │ │
+    │  └─────┴────────┴───────────┴─────────┴───────────────┘ │
+    └──────────────────────────────────────────────────────────────┘
+
+================================================================================
+ATTACK SCENARIOS
+================================================================================
+
+SCENARIO 1: OAUTH STATE CONFUSION (CSRF)
+─────────────────────────────────────────────────────────────────────────
+
+Timeline:
+T1. Attacker logs in as Tenant B
+T2. Attacker initiates Gmail OAuth as Tenant B → state "def456" created
+T3. Attacker obtains authorization code from Google
+T4. Attacker NOW SWITCHES USER CONTEXT to Tenant C session
+T5. Attacker submits callback with:
+    - state="def456" (from Tenant B's OAuth)
+    - code=<Tenant B's auth code>
+    - To Tenant C's /api/integrations/gmail/callback
+    
+Current Code Flow:
+  state_data = oauth_states.pop("def456")  ← Finds it! (no expiration)
+  if state_data["type"] == "gmail":  ← True!
+      state_data["tenant_id"] == "TenantB"  ← But callback doesn't check this
+      connector = db.query(Connector).filter(
+          Connector.tenant_id == state_data["tenant_id"]  ← Uses TenantB
+      )
+  Result: ✓ SUCCESS - TenantB Gmail connected, but Tenant C orchestrated it
+
+Risk: Attacker controls which tenant's credential they want to steal
+
+─────────────────────────────────────────────────────────────────────────
+
+SCENARIO 2: DATABASE BREACH CREDENTIAL EXPOSURE
+─────────────────────────────────────────────────────────────────────────
+
+If database is compromised:
+
+Attacker runs:
+  SELECT access_token, refresh_token FROM connectors;
+  
+Result: 
+  TenantA Gmail: {plaintext_access_token}
+  TenantA Gmail: {plaintext_refresh_token}
+  TenantB Slack: {plaintext_access_token}
+  TenantC Box: {plaintext_access_token}
+  
+Attacker can:
+  1. Use tokens to access Google, Slack, Box accounts
+  2. Read all emails, messages, files
+  3. Modify/delete data in those services
+  4. Impersonate users to those services
+  5. Access shared data (other users' emails/files)
+
+Timeline to exploit: < 1 minute
+
+─────────────────────────────────────────────────────────────────────────
+
+SCENARIO 3: RACE CONDITION IN CONCURRENT REQUESTS
+─────────────────────────────────────────────────────────────────────────
+
+With multiple workers processing simultaneous requests:
+
+T1. Worker 1: User A initiates Gmail OAuth → state "abc123"
+T2. Worker 2: User B initiates Gmail OAuth → state "def456"  
+T3. Worker 1: Google redirects to callback with state "abc123"
+T4. Worker 2: Google redirects to callback with state "def456"
+T5. Worker 1: Pops oauth_states["abc123"]
+T6. Worker 2: Pops oauth_states["def456"]
+
+If timing causes:
+  - Both workers try to pop same state
+  - One gets None, other gets state
+  - The one with None fails, but might have partial processing
+
+Risk: Unpredictable behavior, potential state leakage
+
+─────────────────────────────────────────────────────────────────────────
+
+SCENARIO 4: STATE REUSE AFTER FIRST AUTH
+─────────────────────────────────────────────────────────────────────────
+
+T1. User initiates OAuth → state "abc123" stored (no TTL)
+T2. Google redirects user back with code
+T3. User's browser crashes before callback completes
+T4. State "abc123" remains in oauth_states indefinitely
+T5. Next week: Attacker intercepts same code from authorization history
+T6. Attacker sends callback with state "abc123" + old code
+T7. Since state still exists (no cleanup), callback succeeds
+
+Fix would be: Delete state after use:
+  state_data = oauth_states.pop(state)  ← This removes it
+  
+But currently it only removes if callback completes successfully.
+If callback fails, state remains.
+
+================================================================================
+THREAT MATRIX
+================================================================================
+
+┌─────────────────────────┬──────────┬──────────┬──────────┬───────────┐
+│ Threat                  │ Impact   │ Likelihood│Detectability│Priority │
+├─────────────────────────┼──────────┼──────────┼──────────┼───────────┤
+│ Plaintext Token Storage │ CRITICAL │ HIGH     │ LOW      │ CRITICAL │
+│ DB Breach → Token Leak  │ CRITICAL │ MEDIUM   │ LOW      │ CRITICAL │
+│ CSRF via State Confusion│ CRITICAL │ HIGH     │ MEDIUM   │ CRITICAL │
+│ State Reuse Attack      │ HIGH     │ MEDIUM   │ MEDIUM   │ HIGH     │
+│ Race Condition Leak     │ MEDIUM   │ MEDIUM   │ LOW      │ MEDIUM   │
+│ Token Expiry Failure    │ MEDIUM   │ HIGH     │ HIGH     │ MEDIUM   │
+│ Callback Rate Limiting  │ LOW      │ MEDIUM   │ MEDIUM   │ MEDIUM   │
+│ Settings Info Leakage   │ LOW      │ MEDIUM   │ LOW      │ LOW      │
+└─────────────────────────┴──────────┴──────────┴──────────┴───────────┘
+
+================================================================================
+POSITIVE CONTROLS (ALREADY IMPLEMENTED)
+================================================================================
+
+✓ Tenant-based Document Isolation
+  - All documents have tenant_id foreign key
+  - Queries filter by g.tenant_id from JWT
+  - Cannot access documents of other tenants
+
+✓ Connector Tenant Binding
+  - All connectors have tenant_id foreign key
+  - Queries filter by g.tenant_id
+  - @require_auth decorator ensures g.tenant_id is set
+
+✓ Foreign Key Constraints
+  - Database enforces connector.tenant_id references tenants.id
+  - Cannot have orphaned connectors
+
+✓ Token Non-Exposure
+  - API never returns actual token values
+  - to_dict(include_tokens=False) only shows boolean existence
+  - Tokens never logged
+
+✓ OAuth Provider Secrets
+  - Client secrets from environment, not hardcoded
+  - Secrets not in version control
+
+================================================================================
+PROPOSED SOLUTION ARCHITECTURE
+================================================================================
+
+After fixes, flow becomes:
+
+    ┌─────────────┐  state + tenant_id + TTL
+    │   User      │──────────────────────────→ ┌────────────┐
+    │   Tenant A  │                            │  Redis     │
+    └─────────────┘                            │   oauth_:  │
+         │                                      │   - state1 │
+         │                                      │   - state2 │
+         │  Receives code + state               │   - state3 │
+         │  + Current tenant from JWT           │ (10min TTL)│
+         │                                      └────────────┘
+    ┌────────────────────────────────────────────────────────┐
+    │          Callback Handler (IMPROVED)                  │
+    │                                                       │
+    │  def gmail_callback():                               │
+    │    state = request.args.get('state')                │
+    │    code = request.args.get('code')                  │
+    │    request_tenant = g.tenant_id (from JWT) ✓NEW    │
+    │                                                       │
+    │    state_data = redis.get(f"oauth_state:{state}")   │
+    │    if not state_data: return error (expired)         │
+    │                                                       │
+    │    ✓ NEW: if state_data["tenant_id"] != request_tenant:
+    │           return error  # CSRF attempt caught!       │
+    │                                                       │
+    │    tokens = exchange_code(code)                      │
+    │                                                       │
+    │    # Encrypt tokens before storing
+    │    connector.access_token = encrypt(tokens["access"])│
+    │    connector.refresh_token = encrypt(tokens["refresh"])
+    │    db.add(connector)                                 │
+    │                                                       │
+    │    ✓ NEW: redis.delete(f"oauth_state:{state}")      │
+    │                                                       │
+    │  Result: ✓ SECURE STATE HANDLING                    │
+    └────────────────────────────────────────────────────────┘
+         │
+         │ (Encrypted tokens)
+         │
+    ┌────────────────────────────────────────────────────────┐
+    │          PostgreSQL (with encrypted fields)          │
+    │                                                       │
+    │  Connector Table:                                    │
+    │  ├─ access_token: (encrypted blob)                  │
+    │  └─ refresh_token: (encrypted blob)                 │
+    └────────────────────────────────────────────────────────┘
+
+================================================================================
+TESTING VALIDATION CHECKLIST
+================================================================================
+
+After implementing fixes, validate with:
+
+□ Unit Tests
+  □ State expires after 10 minutes
+  □ State is one-time-use (deleted after callback)
+  □ Token encryption/decryption works
+  □ Tenant filtering prevents cross-tenant access
+
+□ Integration Tests
+  □ Two simultaneous users can authenticate without collision
+  □ State from Tenant A cannot be used by Tenant B callback
+  □ Expired state rejected with proper error
+  □ Token refresh before sync works
+
+□ Security Tests
+  □ Database dump shows no plaintext tokens
+  □ State in Redis has correct TTL
+  □ CSRF attack with cross-tenant state fails
+  □ Replay attack with old state fails
+
+□ Load Tests
+  □ 100 concurrent users authenticating
+  □ State collision detection
+  □ Redis connection pooling works
+
+================================================================================

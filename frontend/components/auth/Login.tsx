@@ -4,30 +4,55 @@ import React, { useState } from 'react'
 import Image from 'next/image'
 import { useAuth } from '@/contexts/AuthContext'
 
+type AuthMode = 'login' | 'signup'
+
 export default function Login() {
+  const [mode, setMode] = useState<AuthMode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [organizationName, setOrganizationName] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const { login, isLoading: authLoading } = useAuth()
+  const { login, signup, isLoading: authLoading } = useAuth()
 
-  const handleLogin = async () => {
+  const handleSubmit = async () => {
     if (!email || !password) {
       setError('Please enter both email and password')
+      return
+    }
+
+    if (mode === 'signup' && !fullName) {
+      setError('Please enter your full name')
       return
     }
 
     setIsLoading(true)
     setError('')
 
-    const result = await login(email, password)
+    let result
+    if (mode === 'login') {
+      result = await login(email, password)
+    } else {
+      result = await signup(email, password, fullName, organizationName || undefined)
+    }
 
     if (!result.success) {
-      setError(result.error || 'Login failed')
+      setError(result.error || `${mode === 'login' ? 'Login' : 'Signup'} failed`)
     }
     // If successful, AuthContext will handle redirect
 
     setIsLoading(false)
+  }
+
+  const toggleMode = () => {
+    setMode(mode === 'login' ? 'signup' : 'login')
+    setError('')
+    // Clear form when switching modes
+    if (mode === 'login') {
+      setFullName('')
+      setOrganizationName('')
+    }
   }
 
   // Show loading while checking existing auth
@@ -61,7 +86,7 @@ export default function Login() {
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleLogin()
+      handleSubmit()
     }
   }
 
@@ -110,18 +135,19 @@ export default function Login() {
         </h1>
       </div>
 
-      {/* Main content - Login Card */}
+      {/* Main content - Auth Card */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '24px',
+          gap: '20px',
           backgroundColor: '#FFE2BF',
           padding: '48px',
           borderRadius: '16px',
           boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
-          minWidth: '400px'
+          minWidth: '420px',
+          maxWidth: '480px'
         }}
       >
         <h2
@@ -130,10 +156,10 @@ export default function Login() {
             fontFamily: '"Work Sans", sans-serif',
             fontSize: '28px',
             fontWeight: 600,
-            marginBottom: '8px'
+            marginBottom: '4px'
           }}
         >
-          Welcome Back
+          {mode === 'login' ? 'Welcome Back' : 'Create Account'}
         </h2>
 
         <p
@@ -141,10 +167,13 @@ export default function Login() {
             color: '#7E89AC',
             fontFamily: '"Work Sans", sans-serif',
             fontSize: '14px',
-            marginBottom: '16px'
+            marginBottom: '8px',
+            textAlign: 'center'
           }}
         >
-          Sign in to access your knowledge base
+          {mode === 'login'
+            ? 'Sign in to access your knowledge base'
+            : 'Start capturing your organizational knowledge'}
         </p>
 
         {/* Error message */}
@@ -162,6 +191,43 @@ export default function Login() {
             }}
           >
             {error}
+          </div>
+        )}
+
+        {/* Full Name input (signup only) */}
+        {mode === 'signup' && (
+          <div style={{ width: '100%' }}>
+            <label
+              style={{
+                display: 'block',
+                color: '#081028',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '14px',
+                fontWeight: 500,
+                marginBottom: '8px'
+              }}
+            >
+              Full Name
+            </label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="John Doe"
+              style={{
+                width: '100%',
+                height: '50px',
+                padding: '0 16px',
+                borderRadius: '8px',
+                border: '1px solid #7E89AC',
+                backgroundColor: '#FFF3E4',
+                fontSize: '16px',
+                fontFamily: '"Work Sans", sans-serif',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
           </div>
         )}
 
@@ -219,7 +285,7 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Enter your password"
+            placeholder={mode === 'signup' ? 'Min 8 chars, uppercase, lowercase, digit' : 'Enter your password'}
             style={{
               width: '100%',
               height: '50px',
@@ -235,9 +301,46 @@ export default function Login() {
           />
         </div>
 
-        {/* Login button */}
+        {/* Organization Name input (signup only) */}
+        {mode === 'signup' && (
+          <div style={{ width: '100%' }}>
+            <label
+              style={{
+                display: 'block',
+                color: '#081028',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '14px',
+                fontWeight: 500,
+                marginBottom: '8px'
+              }}
+            >
+              Organization Name <span style={{ color: '#7E89AC', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Acme Research Lab"
+              style={{
+                width: '100%',
+                height: '50px',
+                padding: '0 16px',
+                borderRadius: '8px',
+                border: '1px solid #7E89AC',
+                backgroundColor: '#FFF3E4',
+                fontSize: '16px',
+                fontFamily: '"Work Sans", sans-serif',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+        )}
+
+        {/* Submit button */}
         <button
-          onClick={handleLogin}
+          onClick={handleSubmit}
           disabled={isLoading}
           style={{
             width: '100%',
@@ -250,7 +353,7 @@ export default function Login() {
             fontWeight: 600,
             fontFamily: '"Work Sans", sans-serif',
             cursor: isLoading ? 'not-allowed' : 'pointer',
-            marginTop: '16px',
+            marginTop: '8px',
             transition: 'background-color 0.2s'
           }}
           onMouseEnter={(e) => {
@@ -264,50 +367,82 @@ export default function Login() {
             }
           }}
         >
-          {isLoading ? 'Signing in...' : 'Sign In'}
+          {isLoading
+            ? (mode === 'login' ? 'Signing in...' : 'Creating account...')
+            : (mode === 'login' ? 'Sign In' : 'Create Account')}
         </button>
 
-        {/* Demo credentials hint */}
+        {/* Toggle mode link */}
         <div
           style={{
-            marginTop: '16px',
-            padding: '16px',
-            backgroundColor: 'rgba(39, 38, 106, 0.1)',
-            borderRadius: '8px',
-            width: '100%'
+            marginTop: '8px',
+            textAlign: 'center'
           }}
         >
           <p
             style={{
-              color: '#27266A',
+              color: '#7E89AC',
               fontFamily: '"Work Sans", sans-serif',
-              fontSize: '12px',
-              fontWeight: 600,
-              marginBottom: '8px'
+              fontSize: '14px'
             }}
           >
-            Demo Accounts:
-          </p>
-          <p
-            style={{
-              color: '#081028',
-              fontFamily: '"Work Sans", monospace',
-              fontSize: '11px',
-              marginBottom: '4px'
-            }}
-          >
-            BEAT: rishi2205@ucla.edu / BEAT
-          </p>
-          <p
-            style={{
-              color: '#081028',
-              fontFamily: '"Work Sans", monospace',
-              fontSize: '11px'
-            }}
-          >
-            Enron: rishitjain2205@gmail.com / Enron
+            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            <button
+              onClick={toggleMode}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#27266A',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textDecoration: 'underline'
+              }}
+            >
+              {mode === 'login' ? 'Sign up' : 'Sign in'}
+            </button>
           </p>
         </div>
+
+        {/* Info box for new users */}
+        {mode === 'signup' && (
+          <div
+            style={{
+              marginTop: '8px',
+              padding: '16px',
+              backgroundColor: 'rgba(39, 38, 106, 0.1)',
+              borderRadius: '8px',
+              width: '100%'
+            }}
+          >
+            <p
+              style={{
+                color: '#27266A',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '12px',
+                fontWeight: 600,
+                marginBottom: '8px'
+              }}
+            >
+              What happens next:
+            </p>
+            <ul
+              style={{
+                color: '#081028',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '11px',
+                margin: 0,
+                paddingLeft: '16px'
+              }}
+            >
+              <li style={{ marginBottom: '4px' }}>Connect your Gmail, Slack, or Box</li>
+              <li style={{ marginBottom: '4px' }}>We'll import your documents</li>
+              <li style={{ marginBottom: '4px' }}>Review which items are work-related</li>
+              <li>Start asking questions to your AI knowledge base</li>
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )

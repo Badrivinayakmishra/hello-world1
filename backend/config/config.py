@@ -34,6 +34,8 @@ class Config:
     # LlamaParse Configuration
     LLAMAPARSE_RESULT_TYPE = "markdown"
     LLAMAPARSE_VERBOSE = True
+    LLAMAPARSE_GPT4O_MODE = True  # Use GPT-4o for image/chart understanding
+    LLAMAPARSE_NUM_WORKERS = 4   # Parallel processing for faster parsing
 
     # Clustering Configuration
     MIN_CLUSTER_SIZE = 5

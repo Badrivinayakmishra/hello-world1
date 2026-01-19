@@ -32,10 +32,10 @@ class SlackConnector(BaseConnector):
     """
 
     CONNECTOR_TYPE = "slack"
-    REQUIRED_CREDENTIALS = ["bot_token"]
+    REQUIRED_CREDENTIALS = ["access_token"]  # OAuth v2 provides access_token
     OPTIONAL_SETTINGS = {
         "channels": [],  # Channel IDs to sync (empty = all accessible)
-        "include_dms": False,
+        "include_dms": True,  # Include DMs by default
         "include_threads": True,
         "max_messages_per_channel": 1000,
         "oldest_days": 365  # How far back to sync
@@ -55,7 +55,9 @@ class SlackConnector(BaseConnector):
         try:
             self.status = ConnectorStatus.CONNECTING
 
-            self.client = WebClient(token=self.config.credentials.get("bot_token"))
+            # Support both access_token (OAuth v2) and bot_token (legacy)
+            token = self.config.credentials.get("access_token") or self.config.credentials.get("bot_token")
+            self.client = WebClient(token=token)
 
             # Test connection
             response = self.client.auth_test()

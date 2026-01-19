@@ -71,6 +71,22 @@ class Document:
     author: Optional[str] = None
     url: Optional[str] = None
     doc_type: str = "text"  # email, message, code, document, etc.
+    # Aliases for compatibility with integration_routes.py
+    source_id: Optional[str] = None
+    source_type: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        # Set aliases if not explicitly provided
+        if self.source_id is None:
+            self.source_id = self.doc_id
+        if self.source_type is None:
+            self.source_type = self.source
+        if self.created_at is None:
+            self.created_at = self.timestamp
+        if self.updated_at is None:
+            self.updated_at = self.timestamp
 
     def to_dict(self) -> Dict:
         return {

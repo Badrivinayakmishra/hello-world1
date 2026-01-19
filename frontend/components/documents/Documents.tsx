@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react'
 import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
+import { useAuth, useAuthHeaders } from '@/contexts/AuthContext'
+import { useRouter } from 'next/navigation'
 
 const API_BASE = 'http://localhost:5003/api'
 
@@ -16,6 +18,10 @@ interface Document {
   description: string
   category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items'
   selected: boolean
+  // Additional fields from API
+  classification?: string
+  source_type?: string
+  folder_path?: string
 }
 
 const CategoryCard = ({ icon, title, count, active, onClick, color }: any) => (
@@ -89,127 +95,125 @@ export default function Documents() {
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const authHeaders = useAuthHeaders()
+  const { token } = useAuth()
+  const router = useRouter()
 
   useEffect(() => {
-    loadDocuments()
-  }, [])
-
-  // Mock personal documents for demo
-  const mockPersonalDocs: Document[] = [
-    {
-      id: 'personal_1',
-      name: 'Family Vacation Planning 2025',
-      created: '2025-01-10',
-      lastModified: '2025-01-28',
-      type: 'Personal Note',
-      description: 'Planning details for summer vacation to Hawaii with family',
-      category: 'Personal Items',
-      selected: false
-    },
-    {
-      id: 'personal_2',
-      name: 'Birthday Party Guest List',
-      created: '2025-01-05',
-      lastModified: '2025-01-25',
-      type: 'Personal Note',
-      description: 'Guest list and party planning for upcoming birthday celebration',
-      category: 'Personal Items',
-      selected: false
-    },
-    {
-      id: 'personal_3',
-      name: 'Home Renovation Budget',
-      created: '2024-12-15',
-      lastModified: '2025-01-20',
-      type: 'Spreadsheet',
-      description: 'Budget tracking for kitchen renovation project',
-      category: 'Personal Items',
-      selected: false
-    },
-    {
-      id: 'personal_4',
-      name: 'Personal Investment Portfolio',
-      created: '2024-11-20',
-      lastModified: '2025-01-15',
-      type: 'Financial Doc',
-      description: 'Personal stock and bond investment tracking document',
-      category: 'Personal Items',
-      selected: false
-    },
-    {
-      id: 'personal_5',
-      name: 'Gym Membership & Fitness Goals',
-      created: '2025-01-01',
-      lastModified: '2025-01-22',
-      type: 'Personal Note',
-      description: 'New year fitness goals and gym schedule planning',
-      category: 'Personal Items',
-      selected: false
-    },
-    {
-      id: 'personal_6',
-      name: 'Recipe Collection - Italian Dishes',
-      created: '2024-10-15',
-      lastModified: '2025-01-18',
-      type: 'Personal Note',
-      description: 'Collection of favorite Italian recipes from grandma',
-      category: 'Personal Items',
-      selected: false
+    if (token) {
+      loadDocuments()
     }
-  ]
+  }, [token])
 
   const loadDocuments = async () => {
     try {
-      // Load actual emails from the backend
-      const response = await axios.get(`${API_BASE}/all-emails`)
+      // Load documents from the backend with auth
+      const response = await axios.get(`${API_BASE}/documents?limit=500`, {
+        headers: authHeaders
+      })
+
       if (response.data.success) {
-        const emails = response.data.emails
+        const apiDocs = response.data.documents
 
-        // Create documents from emails with categorization
-        const docs: Document[] = emails.map((email: any, index: number) => {
-          // Categorize based on subject and content
-          let category: any = 'Other Items'
-          const subject = email.subject?.toLowerCase() || ''
-          const content = email.content?.toLowerCase() || ''
+        // Create documents from API response with categorization
+        const docs: Document[] = apiDocs.map((doc: any, index: number) => {
+          // Determine category based on classification, folder path, and content
+          let category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' = 'Other Items'
+          const title = doc.title?.toLowerCase() || ''
+          const sourceType = doc.source_type?.toLowerCase() || ''
+          const classification = doc.classification?.toLowerCase() || ''
 
-          // Meetings - look for meeting keywords
-          if (subject.includes('meeting') || subject.includes('schedule') ||
-              subject.includes('agenda') || subject.includes('discussion') ||
-              content.includes('meeting') || content.includes('conference call')) {
-            category = 'Meetings'
+          // Get folder path from metadata if available
+          const folderPath = (doc.metadata?.folder_path || doc.metadata?.box_folder_path || '').toLowerCase()
+
+          // First priority: Use folder path for categorization (Box folder structure)
+          if (folderPath) {
+            if (folderPath.includes('meeting') || folderPath.includes('calendar') ||
+                folderPath.includes('schedule') || folderPath.includes('appointment')) {
+              category = 'Meetings'
+            } else if (folderPath.includes('personal') || folderPath.includes('private') ||
+                       folderPath.includes('family') || folderPath.includes('home')) {
+              category = 'Personal Items'
+            } else if (folderPath.includes('project') || folderPath.includes('work') ||
+                       folderPath.includes('client') || folderPath.includes('business') ||
+                       folderPath.includes('report') || folderPath.includes('document')) {
+              category = 'Documents'
+            }
           }
-          // Documents - look for document/report keywords
-          else if (subject.includes('report') || subject.includes('analysis') ||
-                   subject.includes('document') || subject.includes('presentation') ||
-                   subject.includes('agreement') || subject.includes('contract')) {
+
+          // Second priority: Use backend classification
+          if (category === 'Other Items') {
+            if (classification === 'personal') {
+              category = 'Personal Items'
+            } else if (classification === 'work') {
+              // Further categorize work items based on title
+              if (title.includes('meeting') || title.includes('schedule') ||
+                  title.includes('agenda') || title.includes('discussion') ||
+                  title.includes('call') || title.includes('standup')) {
+                category = 'Meetings'
+              } else {
+                category = 'Documents'
+              }
+            }
+          }
+
+          // Third priority: Fallback to content-based categorization
+          if (category === 'Other Items') {
+            if (title.includes('meeting') || title.includes('schedule') ||
+                title.includes('agenda') || title.includes('discussion') ||
+                title.includes('call') || title.includes('standup') ||
+                title.includes('sync') || title.includes('review')) {
+              category = 'Meetings'
+            } else if (title.includes('personal') || title.includes('private') ||
+                       title.includes('lunch') || title.includes('dinner') ||
+                       title.includes('party') || title.includes('vacation') ||
+                       title.includes('birthday') || title.includes('family') ||
+                       title.includes('recipe') || title.includes('fitness') ||
+                       title.includes('health') || title.includes('hobby')) {
+              category = 'Personal Items'
+            } else if (title.includes('report') || title.includes('analysis') ||
+                       title.includes('document') || title.includes('presentation') ||
+                       title.includes('agreement') || title.includes('contract') ||
+                       title.includes('proposal') || title.includes('spec') ||
+                       sourceType === 'file' || sourceType === 'box') {
+              // Box files and regular files default to Documents
+              category = 'Documents'
+            }
+          }
+
+          // Final fallback: If source is Box or file, put in Documents (not Personal Items)
+          if (category === 'Other Items' && (sourceType === 'box' || sourceType === 'file')) {
             category = 'Documents'
           }
-          // Personal - look for personal keywords
-          else if (subject.includes('personal') || subject.includes('private') ||
-                   email.from?.includes('personal') || subject.includes('lunch') ||
-                   subject.includes('dinner') || subject.includes('party')) {
-            category = 'Personal Items'
-          }
+
+          // Format dates
+          const createdDate = doc.created_at ? new Date(doc.created_at).toISOString().split('T')[0] : '2025-01-15'
+          const modifiedDate = doc.source_created_at ? new Date(doc.source_created_at).toISOString().split('T')[0] : createdDate
 
           return {
-            id: email.id || `email_${index}`,
-            name: email.subject || 'No Subject',
-            created: email.date || '2025-01-15',
-            lastModified: email.date || '2025-01-15',
-            type: 'Email',
-            description: email.content ? email.content.substring(0, 80) : 'No content',
+            id: doc.id || `doc_${index}`,
+            name: doc.title || 'Untitled Document',
+            created: createdDate,
+            lastModified: modifiedDate,
+            type: sourceType === 'file' ? 'File' : sourceType === 'email' ? 'Email' : sourceType === 'box' ? 'Box File' : sourceType || 'Document',
+            description: doc.summary || doc.title || 'No description',
             category,
-            selected: false
+            selected: false,
+            classification: doc.classification,
+            source_type: doc.source_type,
+            folder_path: folderPath
           }
         })
 
-        // Add mock personal documents
-        setDocuments([...docs, ...mockPersonalDocs])
+        setDocuments(docs)
+      } else {
+        setDocuments([])
       }
     } catch (error) {
       console.error('Error loading documents:', error)
-      // Fallback: just use mock personal documents
-      setDocuments(mockPersonalDocs)
+      setDocuments([])
     } finally {
       setLoading(false)
     }
@@ -237,14 +241,117 @@ export default function Documents() {
   }
 
   const toggleDocument = (id: string) => {
-    setDocuments(docs => docs.map(d => 
+    setDocuments(docs => docs.map(d =>
       d.id === id ? { ...d, selected: !d.selected } : d
     ))
   }
 
-  const deleteSelected = () => {
-    setDocuments(docs => docs.filter(d => !d.selected))
-    setCurrentPage(1) // Reset to first page after deletion
+  const toggleSelectAll = () => {
+    const filteredIds = new Set(getFilteredDocuments().map(d => d.id))
+    const allFilteredSelected = getFilteredDocuments().every(d => d.selected)
+
+    setDocuments(docs => docs.map(d =>
+      filteredIds.has(d.id) ? { ...d, selected: !allFilteredSelected } : d
+    ))
+  }
+
+  const isAllSelected = () => {
+    const filtered = getFilteredDocuments()
+    return filtered.length > 0 && filtered.every(d => d.selected)
+  }
+
+  const isSomeSelected = () => {
+    const filtered = getFilteredDocuments()
+    return filtered.some(d => d.selected) && !filtered.every(d => d.selected)
+  }
+
+  const deleteSelected = async () => {
+    const selectedDocs = documents.filter(d => d.selected)
+    if (selectedDocs.length === 0) return
+
+    setDeleting(true)
+    try {
+      // Permanently delete from backend (hard delete prevents re-sync)
+      const docIds = selectedDocs.map(d => d.id).filter(id => !id.startsWith('personal_'))
+
+      if (docIds.length > 0) {
+        const response = await axios.post(`${API_BASE}/documents/bulk/delete`, {
+          document_ids: docIds,
+          hard: true  // Permanently delete and track external_id to prevent re-sync
+        }, { headers: authHeaders })
+
+        // Check response success
+        if (!response.data.success) {
+          throw new Error(response.data.error || 'Delete failed')
+        }
+
+        console.log('Delete results:', response.data.results)
+      }
+
+      // Remove from local state
+      setDocuments(docs => docs.filter(d => !d.selected))
+      setCurrentPage(1)
+    } catch (error: any) {
+      console.error('Error deleting documents:', error)
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error'
+      const statusCode = error.response?.status || 'N/A'
+      console.error(`Delete failed - Status: ${statusCode}, Error: ${errorMessage}`)
+
+      if (statusCode === 401) {
+        alert('Session expired. Please log in again.')
+        // Could redirect to login page here
+      } else {
+        alert(`Failed to delete documents: ${errorMessage}`)
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const saveAndAnalyzeGaps = async () => {
+    setSaving(true)
+    try {
+      // Get count of non-personal documents to analyze
+      const docsToAnalyze = documents.filter(d =>
+        !d.id.startsWith('personal_') && d.category !== 'Personal Items'
+      ).length
+
+      if (docsToAnalyze === 0) {
+        alert('No work documents to analyze. Please sync some documents first.')
+        setSaving(false)
+        return
+      }
+
+      // Trigger knowledge gap analysis directly
+      // The backend now includes pending documents (include_pending: true by default)
+      const response = await axios.post(`${API_BASE}/knowledge/analyze`, {
+        force: true,
+        include_pending: true  // Explicitly include pending/unclassified docs
+      }, { headers: authHeaders })
+
+      if (response.data.success) {
+        const gapCount = response.data.results?.gaps?.length || 0
+        const docsAnalyzed = response.data.results?.total_documents_analyzed || 0
+
+        if (gapCount > 0) {
+          alert(`Analysis complete! Analyzed ${docsAnalyzed} documents and found ${gapCount} knowledge gaps. Redirecting to Knowledge Gaps page...`)
+          router.push('/knowledge-gaps')
+        } else if (docsAnalyzed === 0) {
+          alert('No documents found to analyze. Please make sure you have synced some documents from Box or other sources.')
+        } else {
+          alert(`Analyzed ${docsAnalyzed} documents but no knowledge gaps were identified. Your documentation may already be comprehensive!`)
+          router.push('/knowledge-gaps')
+        }
+      } else {
+        alert('Analysis failed: ' + (response.data.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      console.error('Error analyzing knowledge gaps:', error)
+      const errorMsg = error.response?.data?.error || error.message || 'Unknown error'
+      alert(`Failed to analyze knowledge gaps: ${errorMsg}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const hasSelectedDocs = documents.some(d => d.selected)
@@ -285,7 +392,7 @@ export default function Documents() {
                 border: '0.6px solid #7E89AC',
                 backgroundColor: '#FFE2BF',
                 outline: 'none',
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: '"Work Sans", sans-serif',
                 fontSize: '14px'
               }}
             />
@@ -329,6 +436,30 @@ export default function Documents() {
             >
               Add Documents
             </button>
+
+            <button
+              onClick={saveAndAnalyzeGaps}
+              disabled={saving || documents.length === 0}
+              style={{
+                display: 'flex',
+                width: '180px',
+                height: '42px',
+                padding: '0 16px',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderRadius: '4px',
+                backgroundColor: saving ? '#ccc' : '#081028',
+                color: '#FFE2BF',
+                border: 'none',
+                cursor: saving || documents.length === 0 ? 'not-allowed' : 'pointer',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '14px',
+                fontWeight: 600,
+                opacity: saving || documents.length === 0 ? 0.6 : 1
+              }}
+            >
+              {saving ? 'Analyzing...' : 'Save & Find Gaps'}
+            </button>
           </div>
         </div>
 
@@ -371,18 +502,17 @@ export default function Documents() {
         </div>
 
         {/* Documents Table */}
-        <div className="flex-1 px-8 py-4 bg-primary overflow-hidden flex items-start">
+        <div className="flex-1 px-8 py-4 bg-primary overflow-auto flex items-start">
           <div
             style={{
               width: '1060px',
-              maxHeight: '668px',
+              minHeight: '400px',
               borderRadius: '12px',
               border: '1px solid #081028',
               backgroundColor: '#FFE2BF',
               boxShadow: '1px 1px 1px 0 rgba(16, 25, 52, 0.40)',
               display: 'flex',
               flexDirection: 'column',
-              overflow: 'hidden',
               position: 'relative'
             }}
           >
@@ -390,6 +520,7 @@ export default function Documents() {
             {hasSelectedDocs && (
               <button
                 onClick={deleteSelected}
+                disabled={deleting}
                 style={{
                   position: 'absolute',
                   right: '16px',
@@ -404,11 +535,12 @@ export default function Documents() {
                   lineHeight: '10px',
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
                   padding: '4px 8px',
                   borderRadius: '4px',
                   backgroundColor: '#FFE2BF',
-                  zIndex: 10
+                  zIndex: 10,
+                  opacity: deleting ? 0.6 : 1
                 }}
               >
                 <div
@@ -426,7 +558,7 @@ export default function Documents() {
                 >
                   <Image src="/check.svg" alt="checked" width={6} height={5} />
                 </div>
-                Delete all
+                {deleting ? 'Deleting...' : 'Delete all'}
               </button>
             )}
             
@@ -440,7 +572,36 @@ export default function Documents() {
                 backgroundColor: '#FFE2BF'
               }}
             >
-              <div style={{ width: '40px' }}></div>
+              <div style={{ width: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div
+                  onClick={toggleSelectAll}
+                  style={{
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '2px',
+                    border: '0.6px solid #CB3CFF',
+                    backgroundColor: isAllSelected() ? '#CB3CFF' : 'transparent',
+                    boxShadow: '1px 1px 1px 0 rgba(16, 25, 52, 0.40)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative'
+                  }}
+                >
+                  {isAllSelected() && (
+                    <Image src="/check.svg" alt="checked" width={6} height={5} />
+                  )}
+                  {isSomeSelected() && !isAllSelected() && (
+                    <div style={{
+                      width: '6px',
+                      height: '2px',
+                      backgroundColor: '#CB3CFF',
+                      borderRadius: '1px'
+                    }} />
+                  )}
+                </div>
+              </div>
               <div style={{ flex: 1, color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 500 }}>
                 Document name
               </div>
@@ -459,7 +620,7 @@ export default function Documents() {
             </div>
 
             {/* Table Body */}
-            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+            <div style={{ overflowX: 'hidden' }}>
               {loading ? (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
                   <span style={{ fontFamily: '"Work Sans"', fontSize: '14px', color: '#081028' }}>
@@ -540,7 +701,7 @@ export default function Documents() {
               <span
                 style={{
                   color: '#081028',
-                  fontFamily: 'Inter, sans-serif',
+                  fontFamily: '"Work Sans", sans-serif',
                   fontSize: '12px',
                   fontWeight: 500,
                   lineHeight: '18px'
@@ -553,7 +714,7 @@ export default function Documents() {
                 <span
                   style={{
                     color: '#081028',
-                    fontFamily: 'Inter, sans-serif',
+                    fontFamily: '"Work Sans", sans-serif',
                     fontSize: '12px',
                     fontWeight: 500,
                     lineHeight: '18px'
@@ -570,7 +731,7 @@ export default function Documents() {
                     border: '0.6px solid #0B1739',
                     backgroundColor: '#FFE2BF',
                     boxShadow: '1px 1px 1px 0 rgba(16, 25, 52, 0.40)',
-                    fontFamily: 'Inter, sans-serif',
+                    fontFamily: '"Work Sans", sans-serif',
                     fontSize: '12px',
                     cursor: 'pointer'
                   }}
@@ -578,6 +739,10 @@ export default function Documents() {
                   <option value={10}>10</option>
                   <option value={25}>25</option>
                   <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                  <option value={1000}>All</option>
                 </select>
 
                 <button

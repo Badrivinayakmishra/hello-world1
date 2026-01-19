@@ -58,17 +58,23 @@ class LlamaParseDocumentParser:
         self.supported_formats = ['.pdf', '.pptx', '.xlsx', '.docx', '.txt', '.html', '.xml']
 
     def _initialize_parser(self):
-        """Initialize LlamaParse parser"""
+        """Initialize LlamaParse parser with GPT-4o mode for image understanding"""
         api_key = self.config.LLAMAPARSE_API_KEY
         if not api_key:
             raise ValueError("LLAMAPARSE_API_KEY not set in config")
 
+        # Get config options with defaults
+        gpt4o_mode = getattr(self.config, 'LLAMAPARSE_GPT4O_MODE', True)
+        num_workers = getattr(self.config, 'LLAMAPARSE_NUM_WORKERS', 4)
+
         self.parser = LlamaParse(
             api_key=api_key,
             result_type=self.config.LLAMAPARSE_RESULT_TYPE,
-            verbose=self.config.LLAMAPARSE_VERBOSE
+            verbose=self.config.LLAMAPARSE_VERBOSE,
+            gpt4o_mode=gpt4o_mode,  # Enable GPT-4o for image/chart understanding
+            num_workers=num_workers,  # Parallel processing
         )
-        print("✓ LlamaParse initialized")
+        print(f"✓ LlamaParse initialized (gpt4o_mode={gpt4o_mode}, workers={num_workers})")
 
     def _initialize_openai(self):
         """Initialize OpenAI client"""

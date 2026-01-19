@@ -929,10 +929,12 @@ class EnhancedRAGv2:
         for idx in top_indices:
             if combined_scores[idx] > 0.01:
                 chunk = chunks[idx]
+                # Support both old format (doc_id at top level) and new format (doc_id in metadata)
+                doc_id = chunk.get('doc_id') or chunk.get('metadata', {}).get('doc_id', '')
                 results.append({
-                    'chunk_id': chunk['chunk_id'],
-                    'doc_id': chunk['doc_id'],
-                    'content': chunk['content'],
+                    'chunk_id': chunk.get('chunk_id', ''),
+                    'doc_id': doc_id,
+                    'content': chunk.get('content', ''),
                     'chunk_index': chunk.get('chunk_index', 0),
                     'metadata': chunk.get('metadata', {}),
                     'score': float(combined_scores[idx]),

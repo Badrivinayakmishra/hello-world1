@@ -179,8 +179,9 @@ class DocumentParser:
         }
 
     def _parse_xlsx(self, file_path: str) -> Dict:
-        """Extract text from Excel"""
+        """Extract text from Excel - NO row limit, processes entire spreadsheet"""
         text_parts = []
+        total_rows = 0
 
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
 
@@ -188,9 +189,10 @@ class DocumentParser:
             sheet = wb[sheet_name]
             sheet_text = [f"[Sheet: {sheet_name}]"]
 
-            # Read rows (limit to first 100 rows to avoid huge files)
+            # Read ALL rows - no artificial limit
+            # Excel files are typically <50MB so this is fine
             row_count = 0
-            for row in sheet.iter_rows(max_row=100, values_only=True):
+            for row in sheet.iter_rows(values_only=True):
                 # Filter out None values and convert to strings
                 row_values = [str(cell) for cell in row if cell is not None and str(cell).strip()]
                 if row_values:
@@ -199,6 +201,7 @@ class DocumentParser:
 
             if row_count > 0:
                 text_parts.append('\n'.join(sheet_text))
+                total_rows += row_count
 
         content = '\n\n'.join(text_parts)
 
@@ -206,6 +209,7 @@ class DocumentParser:
             'content': content,
             'metadata': {
                 'sheets': len(wb.sheetnames),
+                'total_rows': total_rows,
                 'file_type': 'xlsx'
             }
         }
