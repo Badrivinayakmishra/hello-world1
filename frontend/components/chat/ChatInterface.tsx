@@ -6,7 +6,7 @@ import Image from 'next/image'
 import axios from 'axios'
 import { useAuth } from '@/contexts/AuthContext'
 
-const API_BASE = 'http://localhost:5003/api'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + '/api'
 
 interface Message {
   id: string

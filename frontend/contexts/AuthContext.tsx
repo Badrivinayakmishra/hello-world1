@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 
-const API_URL = 'http://localhost:5003'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'
 
 interface User {
   id: string

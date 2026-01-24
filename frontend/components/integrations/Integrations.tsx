@@ -5,7 +5,7 @@ import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
 
-const API_BASE = 'http://localhost:5003/api'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + '/api'
 
 interface Integration {
   id: string

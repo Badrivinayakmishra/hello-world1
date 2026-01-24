@@ -5,7 +5,7 @@ import Sidebar from '../shared/Sidebar'
 import axios from 'axios'
 import { useAuth, useAuthHeaders } from '@/contexts/AuthContext'
 
-const API_BASE = 'http://localhost:5003/api'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + '/api'
 const MAX_QUESTIONS = 30 // Cap at 30 questions
 
 interface KnowledgeGap {
