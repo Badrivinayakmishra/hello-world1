@@ -114,7 +114,6 @@ export default function ChatInterface() {
         }))
         setMessages(loadedMessages)
         setCurrentConversationId(conversationId)
-        setActiveTab('chat')
       }
     } catch (error) {
       console.error('Error loading conversation:', error)
