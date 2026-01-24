@@ -33,7 +33,8 @@ WORKDIR /app
 # Set environment
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+# HOSTNAME must be 0.0.0.0 to accept connections from outside the container
+ENV HOSTNAME="0.0.0.0"
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
@@ -47,12 +48,8 @@ COPY --from=builder /app/.next/static ./.next/static
 # Set ownership
 USER nextjs
 
-# Expose port
+# Expose port (Render sets PORT dynamically)
 EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
 # Start the application
 CMD ["node", "server.js"]
