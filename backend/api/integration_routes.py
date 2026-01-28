@@ -222,21 +222,19 @@ def gmail_auth():
     try:
         from connectors.gmail_connector import GmailConnector
 
-        # Generate state for CSRF protection
-        state = secrets.token_urlsafe(32)
+        # Generate JWT-based state (works across multiple workers)
         redirect_uri = os.getenv(
             "GOOGLE_REDIRECT_URI",
             "http://localhost:5003/api/integrations/gmail/callback"
         )
 
-        # Store state with user info
-        oauth_states[state] = {
-            "type": "gmail",
-            "tenant_id": g.tenant_id,
-            "user_id": g.user_id,
-            "redirect_uri": redirect_uri,
-            "created_at": utc_now().isoformat()
-        }
+        state = create_oauth_state(
+            tenant_id=g.tenant_id,
+            user_id=g.user_id,
+            connector_type="gmail",
+            extra_data={"redirect_uri": redirect_uri}
+        )
+        print(f"[GmailAuth] JWT state created for tenant: {g.tenant_id}")
 
         # Get auth URL
         auth_url = GmailConnector.get_auth_url(redirect_uri, state)
@@ -278,15 +276,18 @@ def gmail_callback():
         if not code or not state:
             return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
 
-        # Verify state
-        state_data = oauth_states.pop(state, None)
-        if not state_data or state_data["type"] != "gmail":
+        # Verify JWT-based state
+        state_data, error_msg = verify_oauth_state(state)
+        if error_msg or not state_data or state_data.get("connector_type") != "gmail":
+            print(f"[Gmail Callback] Invalid state: {error_msg}")
             return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
 
         from connectors.gmail_connector import GmailConnector
 
         # Exchange code for tokens
-        redirect_uri = state_data["redirect_uri"]
+        redirect_uri = state_data.get("data", {}).get("redirect_uri")
+        if not redirect_uri:
+            redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5003/api/integrations/gmail/callback")
         tokens, error = GmailConnector.exchange_code_for_tokens(code, redirect_uri)
 
         if error:
@@ -295,9 +296,12 @@ def gmail_callback():
         # Save connector to database
         db = get_db()
         try:
+            tenant_id = state_data.get("tenant_id")
+            user_id = state_data.get("user_id")
+
             # Check if connector already exists
             connector = db.query(Connector).filter(
-                Connector.tenant_id == state_data["tenant_id"],
+                Connector.tenant_id == tenant_id,
                 Connector.connector_type == ConnectorType.GMAIL
             ).first()
 
@@ -311,11 +315,12 @@ def gmail_callback():
                 connector.is_active = True  # Re-enable connector on reconnect
                 connector.error_message = None
                 connector.updated_at = utc_now()
+                print(f"[Gmail Callback] Updated existing connector for tenant: {tenant_id}")
             else:
                 # Create new
                 connector = Connector(
-                    tenant_id=state_data["tenant_id"],
-                    user_id=state_data["user_id"],
+                    tenant_id=tenant_id,
+                    user_id=user_id,
                     connector_type=ConnectorType.GMAIL,
                     name="Gmail",
                     status=ConnectorStatus.CONNECTED,
@@ -324,6 +329,7 @@ def gmail_callback():
                     token_scopes=["https://www.googleapis.com/auth/gmail.readonly"]
                 )
                 db.add(connector)
+                print(f"[Gmail Callback] Created new connector for tenant: {tenant_id}")
 
             db.commit()
 
