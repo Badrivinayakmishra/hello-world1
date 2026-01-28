@@ -1563,8 +1563,19 @@ def _run_connector_sync(
             asyncio.set_event_loop(loop)
 
             try:
+                # Check if this is the first sync (no documents exist for this connector)
+                existing_doc_count = db.query(Document).filter(
+                    Document.tenant_id == tenant_id,
+                    Document.connector_id == connector.id
+                ).count()
+
+                # Force full sync if no documents exist yet (first sync)
+                if existing_doc_count == 0:
+                    full_sync = True
+                    since = None
+                    print(f"[Sync] First sync detected for {connector_type}, doing full sync")
                 # Use last sync time if not doing full sync
-                if not since and connector.last_sync_at and not full_sync:
+                elif not since and connector.last_sync_at and not full_sync:
                     since = connector.last_sync_at
 
                 # Update progress - fetching
