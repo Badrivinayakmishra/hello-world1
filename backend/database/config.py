@@ -35,6 +35,12 @@ BCRYPT_ROUNDS = 12  # Work factor for bcrypt
 
 def get_database_url() -> str:
     """Get the database URL based on configuration"""
+    # First check for DATABASE_URL (used by Render and other platforms)
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+
+    # Otherwise construct from individual variables
     if DATABASE_TYPE == "postgresql":
         return f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
     else:
