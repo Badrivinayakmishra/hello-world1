@@ -90,19 +90,28 @@ class EmbeddingService:
         # Filter documents that need embedding
         docs_to_embed = []
         skipped = 0
+        skipped_no_content = 0
+        skipped_already_embedded = 0
 
         for doc in documents:
             if not doc.content:
                 skipped += 1
+                skipped_no_content += 1
+                print(f"[EmbeddingService] Skipping doc {doc.id} ({doc.title}): No content")
                 continue
 
             if not force_reembed and doc.embedded_at:
                 skipped += 1
+                skipped_already_embedded += 1
+                print(f"[EmbeddingService] Skipping doc {doc.id} ({doc.title}): Already embedded at {doc.embedded_at}")
                 continue
 
             docs_to_embed.append(doc)
 
+        print(f"[EmbeddingService] Filtered: {len(docs_to_embed)} to embed, {skipped_no_content} without content, {skipped_already_embedded} already embedded")
+
         if not docs_to_embed:
+            print(f"[EmbeddingService] No documents to embed after filtering")
             return {
                 'success': True,
                 'total': len(documents),

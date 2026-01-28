@@ -1587,13 +1587,16 @@ def _run_connector_sync(
                 )
 
                 # Get list of existing external_ids to avoid duplicates
+                # CRITICAL: Only skip documents that are fully embedded, not just any existing doc
                 existing_external_ids = set(
                     d.external_id for d in db.query(Document.external_id).filter(
                         Document.tenant_id == tenant_id,
                         Document.connector_id == connector.id,
-                        Document.external_id != None
+                        Document.external_id != None,
+                        Document.embedded_at != None  # Only skip if already embedded
                     ).all()
                 )
+                print(f"[Sync] Existing embedded document IDs: {len(existing_external_ids)}")
 
                 # Filter out deleted and existing documents
                 original_count = len(documents) if documents else 0
@@ -1654,14 +1657,17 @@ def _run_connector_sync(
 
                 # REAL EMBEDDING: Embed documents to Pinecone
                 try:
-                    print(f"[Sync] Starting embedding for {len(documents)} documents...")
+                    print(f"[Sync] Starting embedding for {len(documents)} new documents...")
 
-                    # Query the documents we just added (they're committed now)
-                    doc_ids = [db_doc.id for db_doc in db.query(Document).filter(
+                    # Query ALL un-embedded documents for this connector (including from previous failed syncs)
+                    un_embedded_docs = db.query(Document).filter(
                         Document.tenant_id == tenant_id,
                         Document.connector_id == connector.id,
                         Document.embedded_at == None
-                    ).all()]
+                    ).all()
+
+                    doc_ids = [doc.id for doc in un_embedded_docs]
+                    print(f"[Sync] Found {len(doc_ids)} total un-embedded documents (including from previous syncs)")
 
                     if doc_ids:
                         # Get fresh document objects (with tenant_id filter for defense-in-depth)
@@ -1689,6 +1695,8 @@ def _run_connector_sync(
                         # STEP 2: Embed to Pinecone (for RAG search)
                         sync_progress[progress_key]["current_file"] = "Embedding documents..."
                         sync_progress[progress_key]["progress"] = 90
+
+                        print(f"[Sync] Calling embedding_service.embed_documents() with {len(docs_to_embed)} documents")
                         embedding_service = get_embedding_service()
                         embed_result = embedding_service.embed_documents(
                             documents=docs_to_embed,
@@ -1700,10 +1708,13 @@ def _run_connector_sync(
                         sync_progress[progress_key]["documents_embedded"] = embed_result.get('embedded', 0)
                         sync_progress[progress_key]["chunks_created"] = embed_result.get('chunks', 0)
 
+                        print(f"[Sync] Embedding result: embedded={embed_result.get('embedded', 0)}, chunks={embed_result.get('chunks', 0)}, skipped={embed_result.get('skipped', 0)}")
                         if embed_result.get('errors'):
                             print(f"[Sync] Embedding errors: {embed_result['errors']}")
-                        else:
-                            print(f"[Sync] Successfully embedded {embed_result.get('embedded', 0)} documents")
+                        if embed_result.get('embedded', 0) == 0 and len(docs_to_embed) > 0:
+                            print(f"[Sync] WARNING: 0 documents embedded but {len(docs_to_embed)} were provided!")
+                    else:
+                        print(f"[Sync] No un-embedded documents found - all documents are already embedded or processed")
 
                 except Exception as embed_error:
                     print(f"[Sync] Embedding error (non-fatal): {embed_error}")

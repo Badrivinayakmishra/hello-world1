@@ -683,12 +683,23 @@ class BoxConnector(BaseConnector):
                 print(f"[BoxConnector] Unsupported file type: {extension}")
                 return ""
 
-            # Download file content from Box
+            # Download file content from Box (works with both SDKs)
             print(f"[BoxConnector] Downloading file {file_id} ({file_name}) for parsing...")
-            content_stream = self.client.downloads.download_file(file_id)
-            file_bytes = b""
-            for chunk in content_stream:
-                file_bytes += chunk
+
+            if self.sdk_version == "new":
+                # New SDK method
+                content_stream = self.client.downloads.download_file(file_id)
+                file_bytes = b""
+                for chunk in content_stream:
+                    file_bytes += chunk
+            else:
+                # Legacy SDK method
+                import io
+                file_obj = self.client.file(file_id)
+                content_stream = io.BytesIO()
+                file_obj.download_to(content_stream)
+                content_stream.seek(0)
+                file_bytes = content_stream.read()
 
             if not file_bytes:
                 print(f"[BoxConnector] Empty file content for {file_id}")
@@ -755,10 +766,17 @@ class BoxConnector(BaseConnector):
             # Build path
             full_path = f"{folder_path}/{file_obj.name}"
 
-            # Extract content if possible
+            # Extract content using LlamaParse (universal parser)
             content = ""
             if file_ext.lower() in self.EXTRACTABLE_TYPES:
-                content = await self._extract_content(file_obj)
+                # Use the new SDK extraction method which leverages LlamaParse
+                # This works even with legacy Box SDK
+                content = await self._extract_content_new_sdk(
+                    file_id=file_obj.id,
+                    extension=file_ext,
+                    file_name=file_obj.name
+                )
+                print(f"[BoxConnector] Extracted {len(content)} chars from {file_obj.name}")
 
             # Build metadata
             created_by = file_obj.created_by
