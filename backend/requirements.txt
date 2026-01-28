@@ -19,6 +19,7 @@ pinecone>=5.0.0
 
 # LlamaParse
 llama-parse==0.4.0
+llama-index-core==0.10.43  # Pinned for compatibility with protobuf 3.20.3
 
 # Data Processing
 pandas==2.1.4
@@ -35,9 +36,13 @@ pydub==0.25.1
 # Integrations
 boxsdk==3.9.2
 slack-sdk==3.26.2
-google-auth>=2.15.0
-google-auth-oauthlib>=1.0.0
-google-api-python-client>=2.80.0
+# Gmail - pinned to compatible versions
+protobuf==3.20.3
+google-auth==2.16.0
+google-auth-oauthlib==1.0.0
+google-api-core==2.11.0
+google-api-python-client==2.88.0
+googleapis-common-protos==1.60.0
 
 # Azure Speech (TTS)
 azure-cognitiveservices-speech==1.35.0
