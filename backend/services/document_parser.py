@@ -377,8 +377,25 @@ class DocumentParser:
                     )
 
                 if result_response.status_code == 200:
-                    text = result_response.text
-                    print(f"[DocumentParser] Extracted {len(text)} characters from {file_name}")
+                    # LlamaParse might return JSON with {"text": "..."} or plain text
+                    try:
+                        # Try parsing as JSON first
+                        result_json = result_response.json()
+                        if isinstance(result_json, dict) and "text" in result_json:
+                            text = result_json["text"]
+                            print(f"[DocumentParser] Extracted {len(text)} characters from {file_name} (JSON response)")
+                        elif isinstance(result_json, dict) and "markdown" in result_json:
+                            text = result_json["markdown"]
+                            print(f"[DocumentParser] Extracted {len(text)} characters from {file_name} (markdown JSON)")
+                        else:
+                            # JSON but unknown structure, use plain text
+                            text = result_response.text
+                            print(f"[DocumentParser] Extracted {len(text)} characters from {file_name} (JSON fallback)")
+                    except Exception:
+                        # Not JSON, use plain text
+                        text = result_response.text
+                        print(f"[DocumentParser] Extracted {len(text)} characters from {file_name} (plain text)")
+
                     return text
                 else:
                     print(f"[DocumentParser] Failed to get LlamaParse result: {result_response.status_code}")
