@@ -1016,6 +1016,277 @@ const SlackTokenModal = ({
   )
 }
 
+// PubMed Configuration Modal Component
+const PubMedConfigModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  isLoading
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSubmit: (config: {
+    searchQuery: string
+    maxResults: number
+    dateRangeYears: number
+    apiKey: string
+  }) => void
+  isLoading: boolean
+}) => {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [maxResults, setMaxResults] = useState(100)
+  const [dateRangeYears, setDateRangeYears] = useState(5)
+  const [apiKey, setApiKey] = useState('')
+
+  if (!isOpen) return null
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: '#FFF3E4',
+          borderRadius: '16px',
+          padding: '32px',
+          maxWidth: '600px',
+          width: '90%',
+          maxHeight: '90vh',
+          overflow: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 style={{
+          fontFamily: 'Geist, sans-serif',
+          fontSize: '20px',
+          fontWeight: 600,
+          marginBottom: '8px'
+        }}>
+          Configure PubMed Search
+        </h2>
+
+        <p style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '14px',
+          color: '#71717A',
+          marginBottom: '20px'
+        }}>
+          Search biomedical literature from NCBI PubMed. Enter a search query to find and sync research papers.
+        </p>
+
+        {/* Search Query */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Search Query *
+          </label>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder='e.g., "NICU[Title] AND outcomes", "diabetes treatment 2020:2024[pdat]"'
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            Use PubMed search syntax. <a href="https://pubmed.ncbi.nlm.nih.gov/help/" target="_blank" rel="noopener" style={{color: '#3B82F6', textDecoration: 'underline'}}>Learn more</a>
+          </p>
+        </div>
+
+        {/* Max Results */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Maximum Results
+          </label>
+          <input
+            type="number"
+            value={maxResults}
+            onChange={e => setMaxResults(Math.max(1, Math.min(500, parseInt(e.target.value) || 100)))}
+            min="1"
+            max="500"
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            Maximum papers to fetch (1-500, default: 100)
+          </p>
+        </div>
+
+        {/* Date Range */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Date Range (Years)
+          </label>
+          <select
+            value={dateRangeYears}
+            onChange={e => setDateRangeYears(parseInt(e.target.value))}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          >
+            <option value="0">All time</option>
+            <option value="1">Last year</option>
+            <option value="2">Last 2 years</option>
+            <option value="5">Last 5 years (default)</option>
+            <option value="10">Last 10 years</option>
+          </select>
+        </div>
+
+        {/* API Key (Optional) */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            NCBI API Key (Optional)
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder="Optional - increases rate limit to 10 req/sec"
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'monospace'
+            }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            Get an API key from <a href="https://www.ncbi.nlm.nih.gov/account/settings/" target="_blank" rel="noopener" style={{color: '#3B82F6', textDecoration: 'underline'}}>NCBI Account Settings</a>
+          </p>
+        </div>
+
+        {/* Info Box */}
+        <div style={{
+          padding: '12px',
+          backgroundColor: '#DBEAFE',
+          borderRadius: '8px',
+          marginBottom: '20px'
+        }}>
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '13px',
+            color: '#1E40AF',
+            margin: 0
+          }}>
+            <strong>Note:</strong> Only papers with abstracts will be synced. Full-text articles require institutional access.
+          </p>
+        </div>
+
+        {/* Buttons */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '12px'
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              backgroundColor: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer'
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSubmit({
+              searchQuery,
+              maxResults,
+              dateRangeYears,
+              apiKey
+            })}
+            disabled={!searchQuery.trim() || isLoading}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: !searchQuery.trim() ? '#9ca3af' : '#3B82F6',
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: !searchQuery.trim() ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {isLoading ? 'Configuring...' : 'Search & Sync'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Integration Details Modal Component
 const IntegrationDetailsModal = ({
   isOpen,
@@ -1912,6 +2183,14 @@ export default function Integrations() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null)
 
+  // PubMed configuration modal state
+  const [showPubMedModal, setShowPubMedModal] = useState(false)
+  const [pubmedQuery, setPubmedQuery] = useState('')
+  const [pubmedMaxResults, setPubmedMaxResults] = useState(100)
+  const [pubmedDateRange, setPubmedDateRange] = useState(5)
+  const [pubmedApiKey, setPubmedApiKey] = useState('')
+  const [isConfiguringPubmed, setIsConfiguringPubmed] = useState(false)
+
   // Load localStorage state after hydration to avoid mismatch
   useEffect(() => {
     setIsHydrated(true)
@@ -2408,8 +2687,69 @@ export default function Integrations() {
     }
   }
 
+  const submitPubMedConfig = async (config: {
+    searchQuery: string
+    maxResults: number
+    dateRangeYears: number
+    apiKey: string
+  }) => {
+    setIsConfiguringPubmed(true)
+    try {
+      const authToken = getAuthToken()
+      const response = await axios.post(
+        `${API_BASE}/integrations/pubmed/configure`,
+        {
+          search_query: config.searchQuery,
+          max_results: config.maxResults,
+          date_range_years: config.dateRangeYears,
+          include_abstracts_only: true,
+          api_key: config.apiKey || undefined
+        },
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      )
+
+      if (response.data.success) {
+        setShowPubMedModal(false)
+        setIntegrationsState(prev =>
+          prev.map(int =>
+            int.id === 'pubmed' ? { ...int, connected: true } : int
+          )
+        )
+        setSyncStatus('PubMed configured! Searching and syncing papers...')
+        // Auto-sync starts on backend, poll for progress
+        setTimeout(() => startSyncWithProgress('pubmed'), 500)
+      } else {
+        setSyncStatus(`Failed to configure PubMed: ${response.data.error}`)
+      }
+    } catch (error: any) {
+      setSyncStatus(`Error: ${error.response?.data?.error || error.message}`)
+    } finally {
+      setIsConfiguringPubmed(false)
+    }
+  }
+
   const toggleConnect = async (id: string) => {
     const integration = integrationsState.find(i => i.id === id)
+
+    // Handle PubMed configuration
+    if (id === 'pubmed') {
+      if (integration?.connected) {
+        await disconnectIntegration(id)
+      } else {
+        setShowPubMedModal(true)
+      }
+      return
+    }
+
+    // Handle ResearchGate and Google Scholar (not implemented)
+    if (id === 'researchgate' || id === 'googlescholar') {
+      const name = id === 'researchgate' ? 'ResearchGate' : 'Google Scholar'
+      setSyncStatus(
+        `${name} does not provide a public API. Please use PubMed or manual exports instead.`
+      )
+      setTimeout(() => setSyncStatus(null), 5000)
+      return
+    }
 
     // Handle OAuth integrations (Slack, Gmail, Box, etc.)
     if (integration?.isOAuth) {
@@ -2595,6 +2935,14 @@ export default function Integrations() {
         onClose={() => setShowSlackTokenModal(false)}
         onSubmit={submitSlackToken}
         isLoading={isSubmittingToken}
+      />
+
+      {/* PubMed Configuration Modal */}
+      <PubMedConfigModal
+        isOpen={showPubMedModal}
+        onClose={() => setShowPubMedModal(false)}
+        onSubmit={submitPubMedConfig}
+        isLoading={isConfiguringPubmed}
       />
 
       {/* Slack Channel Selection Modal */}

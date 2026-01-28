@@ -72,6 +72,9 @@ class ConnectorType(PyEnum):
     ONEDRIVE = "onedrive"
     GOOGLE_DRIVE = "google_drive"
     NOTION = "notion"
+    PUBMED = "pubmed"
+    RESEARCHGATE = "researchgate"
+    GOOGLESCHOLAR = "googlescholar"
 
 
 class ConnectorStatus(PyEnum):

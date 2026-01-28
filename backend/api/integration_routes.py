@@ -186,6 +186,22 @@ def list_integrations():
                 "error_message": github.error_message if github else None
             })
 
+            # PubMed (research)
+            pubmed = connector_map.get(ConnectorType.PUBMED)
+            integrations.append({
+                "type": "pubmed",
+                "name": "PubMed",
+                "description": "Search biomedical literature from NCBI",
+                "icon": "pubmed",
+                "auth_type": "api_key",
+                "status": pubmed.status.value if pubmed else "not_configured",
+                "connector_id": pubmed.id if pubmed else None,
+                "last_sync_at": pubmed.last_sync_at.isoformat() if pubmed and pubmed.last_sync_at else None,
+                "total_items_synced": pubmed.total_items_synced if pubmed else 0,
+                "error_message": pubmed.error_message if pubmed else None,
+                "settings": pubmed.settings if pubmed else None
+            })
+
             return jsonify({
                 "success": True,
                 "integrations": integrations,
@@ -1379,6 +1395,164 @@ def onedrive_callback():
 
 
 # ============================================================================
+# PUBMED INTEGRATION
+# ============================================================================
+
+@integration_bp.route('/pubmed/configure', methods=['POST'])
+@require_auth
+def pubmed_configure():
+    """
+    Configure PubMed search parameters.
+
+    Request body:
+    {
+        "search_query": "NICU[Title] AND outcomes",  // Required
+        "max_results": 100,  // Optional, default 100
+        "date_range_years": 5,  // Optional, default 5 (0 = all time)
+        "include_abstracts_only": true,  // Optional, default true
+        "api_key": "your_ncbi_api_key"  // Optional
+    }
+    """
+    try:
+        data = request.get_json()
+        search_query = data.get("search_query", "").strip()
+
+        if not search_query:
+            return jsonify({
+                "success": False,
+                "error": "Search query is required"
+            }), 400
+
+        max_results = data.get("max_results", 100)
+        date_range_years = data.get("date_range_years", 5)
+        include_abstracts_only = data.get("include_abstracts_only", True)
+        api_key = data.get("api_key")
+
+        db = get_db()
+        try:
+            # Check if connector exists
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == g.tenant_id,
+                Connector.connector_type == ConnectorType.PUBMED
+            ).first()
+
+            settings = {
+                "search_query": search_query,
+                "max_results": max_results,
+                "date_range_years": date_range_years,
+                "include_abstracts_only": include_abstracts_only
+            }
+            if api_key:
+                settings["api_key"] = api_key
+
+            is_first_connection = connector is None
+
+            if connector:
+                # Update existing
+                connector.settings = settings
+                connector.status = ConnectorStatus.CONNECTED
+                connector.is_active = True
+                connector.error_message = None
+                connector.updated_at = utc_now()
+            else:
+                # Create new
+                connector = Connector(
+                    tenant_id=g.tenant_id,
+                    user_id=g.user_id,
+                    connector_type=ConnectorType.PUBMED,
+                    name="PubMed",
+                    status=ConnectorStatus.CONNECTED,
+                    settings=settings
+                )
+                db.add(connector)
+
+            db.commit()
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = g.tenant_id
+                user_id = g.user_id
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="pubmed",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[PubMed] Started auto-sync for first-time connection")
+
+            return jsonify({
+                "success": True,
+                "message": "PubMed configured successfully",
+                "connector_id": connector.id
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[PubMed Configure] Error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@integration_bp.route('/pubmed/status', methods=['GET'])
+@require_auth
+def pubmed_status():
+    """Get PubMed connector status and configuration"""
+    try:
+        db = get_db()
+        try:
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == g.tenant_id,
+                Connector.connector_type == ConnectorType.PUBMED,
+                Connector.is_active == True
+            ).first()
+
+            if not connector:
+                return jsonify({
+                    "success": True,
+                    "status": "not_configured",
+                    "connector": None
+                })
+
+            return jsonify({
+                "success": True,
+                "status": connector.status.value,
+                "connector": {
+                    "id": connector.id,
+                    "name": connector.name,
+                    "status": connector.status.value,
+                    "settings": connector.settings,
+                    "last_sync_at": connector.last_sync_at.isoformat() if connector.last_sync_at else None,
+                    "total_items_synced": connector.total_items_synced,
+                    "error_message": connector.error_message
+                }
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================================
 # SYNC OPERATIONS
 # ============================================================================
 
@@ -1410,7 +1584,8 @@ def sync_connector(connector_type: str):
             "gmail": ConnectorType.GMAIL,
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
-            "github": ConnectorType.GITHUB
+            "github": ConnectorType.GITHUB,
+            "pubmed": ConnectorType.PUBMED
         }
 
         if connector_type not in type_map:
@@ -1536,6 +1711,9 @@ def _run_connector_sync(
             elif connector_type == "onedrive":
                 from connectors.onedrive_connector import OneDriveConnector
                 ConnectorClass = OneDriveConnector
+            elif connector_type == "pubmed":
+                from connectors.pubmed_connector import PubMedConnector
+                ConnectorClass = PubMedConnector
             else:
                 sync_progress[progress_key]["status"] = "error"
                 sync_progress[progress_key]["error"] = f"Unknown connector type: {connector_type}"
@@ -1834,7 +2012,8 @@ def get_sync_status(connector_type: str):
                 "gmail": ConnectorType.GMAIL,
                 "slack": ConnectorType.SLACK,
                 "box": ConnectorType.BOX,
-                "github": ConnectorType.GITHUB
+                "github": ConnectorType.GITHUB,
+                "pubmed": ConnectorType.PUBMED
             }
 
             if connector_type not in type_map:
@@ -1907,7 +2086,8 @@ def disconnect_connector(connector_type: str):
             "gmail": ConnectorType.GMAIL,
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
-            "github": ConnectorType.GITHUB
+            "github": ConnectorType.GITHUB,
+            "pubmed": ConnectorType.PUBMED
         }
 
         if connector_type not in type_map:
@@ -1970,7 +2150,8 @@ def connector_status(connector_type: str):
             "gmail": ConnectorType.GMAIL,
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
-            "github": ConnectorType.GITHUB
+            "github": ConnectorType.GITHUB,
+            "pubmed": ConnectorType.PUBMED
         }
 
         if connector_type not in type_map:
@@ -2034,7 +2215,8 @@ def update_connector_settings(connector_type: str):
             "gmail": ConnectorType.GMAIL,
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
-            "github": ConnectorType.GITHUB
+            "github": ConnectorType.GITHUB,
+            "pubmed": ConnectorType.PUBMED
         }
 
         if connector_type not in type_map:
