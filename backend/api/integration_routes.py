@@ -370,16 +370,12 @@ def slack_auth():
     Start Slack OAuth flow.
     """
     try:
-        # Generate state
-        state = secrets.token_urlsafe(32)
-
-        # Store state
-        oauth_states[state] = {
-            "type": "slack",
-            "tenant_id": g.tenant_id,
-            "user_id": g.user_id,
-            "created_at": utc_now().isoformat()
-        }
+        # Generate JWT-based state (works across multiple workers)
+        state = create_oauth_state(
+            tenant_id=g.tenant_id,
+            user_id=g.user_id,
+            connector_type="slack"
+        )
 
         # Build Slack OAuth URL
         client_id = os.getenv("SLACK_CLIENT_ID", "")
@@ -668,10 +664,10 @@ def slack_callback():
         if not code or not state:
             return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
 
-        # Verify state
-        state_data = oauth_states.pop(state, None)
-        if not state_data or state_data["type"] != "slack":
-            print(f"[Slack Callback] Invalid state. Available states: {list(oauth_states.keys())}")
+        # Verify JWT-based state
+        state_data, error_msg = verify_oauth_state(state)
+        if error_msg or not state_data or state_data.get("connector_type") != "slack":
+            print(f"[Slack Callback] Invalid state: {error_msg}")
             return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
 
         # Exchange code for tokens
