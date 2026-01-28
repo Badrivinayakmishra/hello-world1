@@ -315,22 +315,23 @@ python -m spacy download en_core_web_sm
 
 ---
 
-### 2. MEMORY BOMB - Excel Parsing
-**Status:** 🔴 CRITICAL - UNFIXED
+### ~~2. MEMORY BOMB - Excel Parsing~~
+**Status:** ✅ FIXED - 2026-01-28
 **Location:** `parsers/document_parser.py` line 181-215
 
-**Problem:**
-- Removed 100-row limit, now processes ALL rows
+**Problem (was):**
+- Removed 100-row limit, processed ALL rows
 - 500K row Excel → entire file loaded into memory as strings
 - Then concatenated into one giant text blob
 - Sent to embedding API (which has limits)
 
-**Missing:**
-- Memory-safe streaming
-- Row limit with warning (e.g., 10K with metadata)
-- Smart summarization for large spreadsheets
+**Fix Applied:**
+- Added MAX_ROWS_PER_SHEET = 10,000 limit per sheet
+- Stops processing at limit with clear break condition
+- Adds warning message to content when truncated
+- Metadata includes truncated_sheets list for transparency
 
-**Impact:** Server crash on large Excel files (user has "heavy Excel use case")
+**Impact:** Prevents server crashes on large Excel files while still processing reasonable amounts of data
 
 ---
 
@@ -475,7 +476,24 @@ curl -H "X-Tenant: victim-tenant-id" /api/documents
 ### ✅ Excel 100-Row Limit
 **Fixed:** 2025-12-09
 **Location:** `parsers/document_parser.py`
-**Note:** Limit removed but memory bomb issue created (see #2)
+**Note:** Limit removed but memory bomb issue created (see #2) - LATER RE-FIXED with 10K limit (2026-01-28)
+
+### ✅ Database Performance Indexes
+**Fixed:** 2026-01-28
+**Location:** `database/models.py`
+**Details:** Added 4 new indexes on Document table:
+- ix_document_sender: Speeds up sender_email queries
+- ix_document_embedded: Speeds up embedding status checks
+- ix_document_confidence: Speeds up sorting by classification confidence
+- ix_document_created: Speeds up date-based queries
+
+### ✅ Frontend Document Fetch Optimization
+**Fixed:** 2026-01-28
+**Location:** `frontend/components/documents/Documents.tsx`
+**Details:** Reduced document fetch limit from 500 to 50
+- Reduces initial JSON response size from ~2.5MB to ~250KB
+- Prevents browser lag on large datasets
+- Note: Pagination still needed for full document list access
 
 ### ✅ Box SDK Installation
 **Fixed:** 2025-12-09
@@ -507,16 +525,22 @@ curl -H "X-Tenant: victim-tenant-id" /api/documents
 ## Priority Order for Fixes
 
 ### Before Demo/Beta:
-1. Token bomb fix (smart sampling for gap analysis)
-2. Excel memory fix (add limits back with warning)
+1. ✅ Token bomb fix (smart sampling for gap analysis) - FIXED 2025-12-09
+2. ✅ Excel memory fix (add limits back with warning) - FIXED 2026-01-28
 3. Multi-tenant security fix (remove header spoofing)
 4. Test LlamaParse gpt4o_mode
 
+### Performance Improvements (Partially Complete):
+- ✅ Database indexes added (2026-01-28)
+- ✅ Frontend fetch limit reduced (2026-01-28)
+- ⚠️ Pagination still needed for documents page
+- ⚠️ Background jobs still needed for long-running operations
+
 ### Before Production:
-5. Background job queue
+5. Background job queue (Celery/RQ)
 6. Incremental Box sync
 7. Pinecone cleanup on delete
-8. Gap deduplication
+8. ✅ Gap deduplication - FIXED 2025-12-18
 9. Retry logic
 
 ### For Scale:
