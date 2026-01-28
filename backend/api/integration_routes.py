@@ -202,6 +202,22 @@ def list_integrations():
                 "settings": pubmed.settings if pubmed else None
             })
 
+            # Website Scraper
+            webscraper = connector_map.get(ConnectorType.WEBSCRAPER)
+            integrations.append({
+                "type": "webscraper",
+                "name": "Website Scraper",
+                "description": "Crawl websites to extract protocols and documentation",
+                "icon": "webscraper",
+                "auth_type": "config",
+                "status": webscraper.status.value if webscraper else "not_configured",
+                "connector_id": webscraper.id if webscraper else None,
+                "last_sync_at": webscraper.last_sync_at.isoformat() if webscraper and webscraper.last_sync_at else None,
+                "total_items_synced": webscraper.total_items_synced if webscraper else 0,
+                "error_message": webscraper.error_message if webscraper else None,
+                "settings": webscraper.settings if webscraper else None
+            })
+
             return jsonify({
                 "success": True,
                 "integrations": integrations,
@@ -1553,6 +1569,176 @@ def pubmed_status():
 
 
 # ============================================================================
+# WEBSITE SCRAPER INTEGRATION
+# ============================================================================
+
+@integration_bp.route('/webscraper/configure', methods=['POST'])
+@require_auth
+def webscraper_configure():
+    """
+    Configure website scraper.
+
+    Request body:
+    {
+        "start_url": "https://example.com",  // Required
+        "priority_paths": ["/resources/", "/protocols/"],  // Optional
+        "max_depth": 3,  // Optional, default 3
+        "max_pages": 50,  // Optional, default 50
+        "include_pdfs": true,  // Optional, default true
+        "rate_limit_delay": 1.0  // Optional, default 1.0
+    }
+    """
+    try:
+        data = request.get_json()
+        start_url = data.get("start_url", "").strip()
+
+        if not start_url:
+            return jsonify({
+                "success": False,
+                "error": "start_url is required"
+            }), 400
+
+        # Validate URL
+        if not start_url.startswith(("http://", "https://")):
+            start_url = "https://" + start_url
+
+        priority_paths = data.get("priority_paths", [])
+        max_depth = data.get("max_depth", 3)
+        max_pages = data.get("max_pages", 50)
+        include_pdfs = data.get("include_pdfs", True)
+        rate_limit_delay = data.get("rate_limit_delay", 1.0)
+
+        db = get_db()
+        try:
+            # Check if connector exists
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == g.tenant_id,
+                Connector.connector_type == ConnectorType.WEBSCRAPER
+            ).first()
+
+            settings = {
+                "start_url": start_url,
+                "priority_paths": priority_paths,
+                "max_depth": max_depth,
+                "max_pages": max_pages,
+                "include_pdfs": include_pdfs,
+                "rate_limit_delay": rate_limit_delay,
+                "allowed_extensions": [".html", ".htm", ".pdf", ""],
+                "exclude_patterns": ["#", "mailto:", "tel:"]
+            }
+
+            is_first_connection = connector is None
+
+            if connector:
+                # Update existing
+                connector.settings = settings
+                connector.status = ConnectorStatus.CONNECTED
+                connector.is_active = True
+                connector.error_message = None
+                connector.updated_at = utc_now()
+            else:
+                # Create new
+                from urllib.parse import urlparse
+                parsed = urlparse(start_url)
+                name = f"Web Scraper ({parsed.netloc})"
+
+                connector = Connector(
+                    tenant_id=g.tenant_id,
+                    user_id=g.user_id,
+                    connector_type=ConnectorType.WEBSCRAPER,
+                    name=name,
+                    status=ConnectorStatus.CONNECTED,
+                    settings=settings
+                )
+                db.add(connector)
+
+            db.commit()
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = g.tenant_id
+                user_id = g.user_id
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="webscraper",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[WebScraper] Started auto-sync for {start_url}")
+
+            return jsonify({
+                "success": True,
+                "message": "Website scraper configured successfully",
+                "connector_id": connector.id
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[WebScraper Configure] Error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@integration_bp.route('/webscraper/status', methods=['GET'])
+@require_auth
+def webscraper_status():
+    """Get website scraper status and configuration"""
+    try:
+        db = get_db()
+        try:
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == g.tenant_id,
+                Connector.connector_type == ConnectorType.WEBSCRAPER,
+                Connector.is_active == True
+            ).first()
+
+            if not connector:
+                return jsonify({
+                    "success": True,
+                    "status": "not_configured",
+                    "connector": None
+                })
+
+            return jsonify({
+                "success": True,
+                "status": connector.status.value,
+                "connector": {
+                    "id": connector.id,
+                    "name": connector.name,
+                    "status": connector.status.value,
+                    "settings": connector.settings,
+                    "last_sync_at": connector.last_sync_at.isoformat() if connector.last_sync_at else None,
+                    "total_items_synced": connector.total_items_synced,
+                    "error_message": connector.error_message
+                }
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================================
 # SYNC OPERATIONS
 # ============================================================================
 
@@ -1585,7 +1771,8 @@ def sync_connector(connector_type: str):
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
             "github": ConnectorType.GITHUB,
-            "pubmed": ConnectorType.PUBMED
+            "pubmed": ConnectorType.PUBMED,
+            "webscraper": ConnectorType.WEBSCRAPER
         }
 
         if connector_type not in type_map:
@@ -1714,6 +1901,9 @@ def _run_connector_sync(
             elif connector_type == "pubmed":
                 from connectors.pubmed_connector import PubMedConnector
                 ConnectorClass = PubMedConnector
+            elif connector_type == "webscraper":
+                from connectors.webscraper_connector import WebScraperConnector
+                ConnectorClass = WebScraperConnector
             else:
                 sync_progress[progress_key]["status"] = "error"
                 sync_progress[progress_key]["error"] = f"Unknown connector type: {connector_type}"
@@ -2013,7 +2203,8 @@ def get_sync_status(connector_type: str):
                 "slack": ConnectorType.SLACK,
                 "box": ConnectorType.BOX,
                 "github": ConnectorType.GITHUB,
-                "pubmed": ConnectorType.PUBMED
+                "pubmed": ConnectorType.PUBMED,
+                "webscraper": ConnectorType.WEBSCRAPER
             }
 
             if connector_type not in type_map:

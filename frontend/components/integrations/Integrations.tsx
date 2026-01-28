@@ -1287,6 +1287,267 @@ const PubMedConfigModal = ({
   )
 }
 
+// WebScraper Configuration Modal Component
+const WebScraperConfigModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  isLoading
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSubmit: (config: {
+    startUrl: string
+    priorityPaths: string[]
+    maxDepth: number
+    maxPages: number
+  }) => void
+  isLoading: boolean
+}) => {
+  const [startUrl, setStartUrl] = useState('')
+  const [priorityPaths, setPriorityPaths] = useState('')
+  const [maxDepth, setMaxDepth] = useState(3)
+  const [maxPages, setMaxPages] = useState(50)
+
+  if (!isOpen) return null
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: '#FFF3E4',
+          borderRadius: '16px',
+          padding: '32px',
+          maxWidth: '600px',
+          width: '90%',
+          maxHeight: '90vh',
+          overflow: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 style={{
+          fontFamily: 'Geist, sans-serif',
+          fontSize: '20px',
+          fontWeight: 600,
+          marginBottom: '8px'
+        }}>
+          Configure Website Scraper
+        </h2>
+
+        <p style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '14px',
+          color: '#71717A',
+          marginBottom: '20px'
+        }}>
+          Crawl websites to extract protocols, documentation, and resources. Perfect for lab websites!
+        </p>
+
+        {/* Start URL */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Website URL *
+          </label>
+          <input
+            type="text"
+            value={startUrl}
+            onChange={e => setStartUrl(e.target.value)}
+            placeholder="https://www.pellegrini.mcdb.ucla.edu/"
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          />
+        </div>
+
+        {/* Priority Paths */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Priority Paths (Optional)
+          </label>
+          <input
+            type="text"
+            value={priorityPaths}
+            onChange={e => setPriorityPaths(e.target.value)}
+            placeholder="/resources/, /protocols/"
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              fontSize: '14px',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            Comma-separated paths to crawl first (e.g., /resources/, /protocols/)
+          </p>
+        </div>
+
+        {/* Max Depth */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Maximum Depth: {maxDepth}
+          </label>
+          <input
+            type="range"
+            value={maxDepth}
+            onChange={e => setMaxDepth(parseInt(e.target.value))}
+            min="1"
+            max="5"
+            style={{ width: '100%' }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            How many links deep to follow (1-5)
+          </p>
+        </div>
+
+        {/* Max Pages */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 500,
+            display: 'block',
+            marginBottom: '8px'
+          }}>
+            Maximum Pages: {maxPages}
+          </label>
+          <input
+            type="range"
+            value={maxPages}
+            onChange={e => setMaxPages(parseInt(e.target.value))}
+            min="10"
+            max="200"
+            step="10"
+            style={{ width: '100%' }}
+          />
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '12px',
+            color: '#71717A',
+            marginTop: '4px'
+          }}>
+            Maximum number of pages to crawl (10-200)
+          </p>
+        </div>
+
+        {/* Info Box */}
+        <div style={{
+          padding: '12px',
+          backgroundColor: '#DBEAFE',
+          borderRadius: '8px',
+          marginBottom: '20px'
+        }}>
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '13px',
+            color: '#1E40AF',
+            margin: 0
+          }}>
+            <strong>Note:</strong> Only pages from the same domain will be crawled. PDFs are automatically extracted.
+          </p>
+        </div>
+
+        {/* Buttons */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '12px'
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: '1px solid #D4D4D8',
+              backgroundColor: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer'
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              const paths = priorityPaths
+                .split(',')
+                .map(p => p.trim())
+                .filter(p => p.length > 0)
+              onSubmit({
+                startUrl,
+                priorityPaths: paths,
+                maxDepth,
+                maxPages
+              })
+            }}
+            disabled={!startUrl.trim() || isLoading}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: !startUrl.trim() ? '#9ca3af' : '#10B981',
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: !startUrl.trim() ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {isLoading ? 'Configuring...' : 'Start Crawling'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Integration Details Modal Component
 const IntegrationDetailsModal = ({
   isOpen,
@@ -1942,6 +2203,14 @@ const integrations: Integration[] = [
     description: 'Search scholarly literature across disciplines and sources worldwide.',
     category: 'Research',
     connected: false
+  },
+  {
+    id: 'webscraper',
+    name: 'Website Scraper',
+    logo: '/webscraper.png',
+    description: 'Crawl lab websites and extract protocols, documentation, and resources.',
+    category: 'Research',
+    connected: false
   }
 ]
 
@@ -2190,6 +2459,14 @@ export default function Integrations() {
   const [pubmedDateRange, setPubmedDateRange] = useState(5)
   const [pubmedApiKey, setPubmedApiKey] = useState('')
   const [isConfiguringPubmed, setIsConfiguringPubmed] = useState(false)
+
+  // WebScraper configuration modal state
+  const [showWebScraperModal, setShowWebScraperModal] = useState(false)
+  const [webscraperUrl, setWebscraperUrl] = useState('')
+  const [webscraperPriorityPaths, setWebscraperPriorityPaths] = useState('')
+  const [webscraperMaxDepth, setWebscraperMaxDepth] = useState(3)
+  const [webscraperMaxPages, setWebscraperMaxPages] = useState(50)
+  const [isConfiguringWebscraper, setIsConfiguringWebscraper] = useState(false)
 
   // Load localStorage state after hydration to avoid mismatch
   useEffect(() => {
@@ -2728,6 +3005,48 @@ export default function Integrations() {
     }
   }
 
+  const submitWebScraperConfig = async (config: {
+    startUrl: string
+    priorityPaths: string[]
+    maxDepth: number
+    maxPages: number
+  }) => {
+    setIsConfiguringWebscraper(true)
+    try {
+      const authToken = getAuthToken()
+      const response = await axios.post(
+        `${API_BASE}/integrations/webscraper/configure`,
+        {
+          start_url: config.startUrl,
+          priority_paths: config.priorityPaths,
+          max_depth: config.maxDepth,
+          max_pages: config.maxPages,
+          include_pdfs: true,
+          rate_limit_delay: 1.0
+        },
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      )
+
+      if (response.data.success) {
+        setShowWebScraperModal(false)
+        setIntegrationsState(prev =>
+          prev.map(int =>
+            int.id === 'webscraper' ? { ...int, connected: true } : int
+          )
+        )
+        setSyncStatus('Website Scraper configured! Crawling website...')
+        // Auto-sync starts on backend, poll for progress
+        setTimeout(() => startSyncWithProgress('webscraper'), 500)
+      } else {
+        setSyncStatus(`Failed to configure Website Scraper: ${response.data.error}`)
+      }
+    } catch (error: any) {
+      setSyncStatus(`Error: ${error.response?.data?.error || error.message}`)
+    } finally {
+      setIsConfiguringWebscraper(false)
+    }
+  }
+
   const toggleConnect = async (id: string) => {
     const integration = integrationsState.find(i => i.id === id)
 
@@ -2737,6 +3056,16 @@ export default function Integrations() {
         await disconnectIntegration(id)
       } else {
         setShowPubMedModal(true)
+      }
+      return
+    }
+
+    // Handle WebScraper configuration
+    if (id === 'webscraper') {
+      if (integration?.connected) {
+        await disconnectIntegration(id)
+      } else {
+        setShowWebScraperModal(true)
       }
       return
     }
@@ -2943,6 +3272,14 @@ export default function Integrations() {
         onClose={() => setShowPubMedModal(false)}
         onSubmit={submitPubMedConfig}
         isLoading={isConfiguringPubmed}
+      />
+
+      {/* WebScraper Configuration Modal */}
+      <WebScraperConfigModal
+        isOpen={showWebScraperModal}
+        onClose={() => setShowWebScraperModal(false)}
+        onSubmit={submitWebScraperConfig}
+        isLoading={isConfiguringWebscraper}
       />
 
       {/* Slack Channel Selection Modal */}

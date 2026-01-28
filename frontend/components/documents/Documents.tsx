@@ -40,6 +40,135 @@ interface FullDocument {
   metadata?: any
 }
 
+// Classification Badge Component
+const ClassificationBadge = ({ classification }: { classification?: string }) => {
+  const getClassificationStyle = () => {
+    switch (classification?.toLowerCase()) {
+      case 'work':
+        return { bg: '#DBEAFE', text: '#1E40AF', label: 'Work' }
+      case 'personal':
+        return { bg: '#FCE7F3', text: '#9F1239', label: 'Personal' }
+      case 'spam':
+        return { bg: '#FEE2E2', text: '#991B1B', label: 'Spam' }
+      default:
+        return { bg: '#F3F4F6', text: '#4B5563', label: 'Unknown' }
+    }
+  }
+
+  const style = getClassificationStyle()
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: '12px',
+        backgroundColor: style.bg,
+        color: style.text,
+        fontSize: '11px',
+        fontWeight: 500,
+        fontFamily: '"Work Sans", sans-serif',
+        textTransform: 'capitalize'
+      }}
+    >
+      {style.label}
+    </span>
+  )
+}
+
+// Classification Dropdown Component
+const ClassificationDropdown = ({
+  docId,
+  currentClassification,
+  onClassify
+}: {
+  docId: string
+  currentClassification?: string
+  onClassify: (docId: string, classification: string) => void
+}) => {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsOpen(!isOpen)
+        }}
+        style={{ cursor: 'pointer' }}
+      >
+        <ClassificationBadge classification={currentClassification} />
+      </div>
+
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setIsOpen(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999
+            }}
+          />
+
+          {/* Dropdown Menu */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              marginTop: '4px',
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #D4D4D8',
+              borderRadius: '8px',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+              zIndex: 1000,
+              minWidth: '120px'
+            }}
+          >
+            {['work', 'personal', 'spam', 'unknown'].map(classification => (
+              <div
+                key={classification}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClassify(docId, classification)
+                  setIsOpen(false)
+                }}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontFamily: '"Work Sans", sans-serif',
+                  textTransform: 'capitalize',
+                  backgroundColor: currentClassification?.toLowerCase() === classification ? '#F3F4F6' : 'transparent',
+                  transition: 'background-color 0.15s'
+                }}
+                onMouseEnter={(e) => {
+                  if (currentClassification?.toLowerCase() !== classification) {
+                    e.currentTarget.style.backgroundColor = '#F9FAFB'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentClassification?.toLowerCase() !== classification) {
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                  }
+                }}
+              >
+                {classification}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 const CategoryCard = ({ icon, title, count, active, onClick, color }: any) => (
   <div
     onClick={onClick}
@@ -115,6 +244,7 @@ export default function Documents() {
   const [deleting, setDeleting] = useState(false)
   const [viewingDocument, setViewingDocument] = useState<FullDocument | null>(null)
   const [loadingDocument, setLoadingDocument] = useState(false)
+  const [classifying, setClassifying] = useState(false)
   const authHeaders = useAuthHeaders()
   const { token } = useAuth()
   const router = useRouter()
@@ -352,6 +482,71 @@ export default function Documents() {
     }
   }
 
+  // Classify single document
+  const classifyDocument = async (docId: string, classification: string) => {
+    try {
+      const response = await axios.put(
+        `${API_BASE}/documents/${docId}/classify`,
+        { classification },
+        { headers: authHeaders }
+      )
+
+      if (response.data.success) {
+        // Update local state
+        setDocuments(prev =>
+          prev.map(doc =>
+            doc.id === docId ? { ...doc, classification } : doc
+          )
+        )
+      } else {
+        throw new Error(response.data.error || 'Classification failed')
+      }
+    } catch (error: any) {
+      console.error('Error classifying document:', error)
+      alert(`Failed to classify document: ${error.response?.data?.error || error.message}`)
+    }
+  }
+
+  // Bulk classify selected documents
+  const bulkClassify = async (classification: string) => {
+    const selectedDocs = documents.filter(d => d.selected)
+    if (selectedDocs.length === 0) return
+
+    setClassifying(true)
+    try {
+      const docIds = selectedDocs.map(d => d.id).filter(id => !id.startsWith('personal_'))
+
+      if (docIds.length > 0) {
+        const response = await axios.post(
+          `${API_BASE}/documents/bulk/classify`,
+          {
+            document_ids: docIds,
+            classification
+          },
+          { headers: authHeaders }
+        )
+
+        if (!response.data.success) {
+          throw new Error(response.data.error || 'Bulk classification failed')
+        }
+
+        // Update local state for all successfully classified documents
+        setDocuments(prev =>
+          prev.map(doc =>
+            selectedDocs.some(sd => sd.id === doc.id) ? { ...doc, classification } : doc
+          )
+        )
+
+        console.log(`Successfully classified ${docIds.length} documents as ${classification}`)
+      }
+    } catch (error: any) {
+      console.error('Error bulk classifying:', error)
+      alert(`Failed to classify documents: ${error.response?.data?.error || error.message}`)
+    } finally {
+      setClassifying(false)
+    }
+  }
+
   const saveAndAnalyzeGaps = async () => {
     setSaving(true)
     try {
@@ -560,50 +755,132 @@ export default function Documents() {
               position: 'relative'
             }}
           >
-            {/* Delete all button - positioned absolutely */}
+            {/* Action buttons - positioned absolutely */}
             {hasSelectedDocs && (
-              <button
-                onClick={deleteSelected}
-                disabled={deleting}
-                style={{
-                  position: 'absolute',
-                  right: '16px',
-                  top: '16px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  color: '#081028',
-                  fontFamily: '"Work Sans"',
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  lineHeight: '10px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: deleting ? 'not-allowed' : 'pointer',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  backgroundColor: '#FFE2BF',
-                  zIndex: 10,
-                  opacity: deleting ? 0.6 : 1
-                }}
-              >
-                <div
+              <div style={{
+                position: 'absolute',
+                right: '16px',
+                top: '16px',
+                display: 'flex',
+                gap: '8px',
+                zIndex: 10
+              }}>
+                {/* Bulk Classify Dropdown */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    disabled={classifying}
+                    onMouseEnter={(e) => {
+                      const menu = e.currentTarget.nextElementSibling as HTMLElement
+                      if (menu) menu.style.display = 'block'
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      color: '#081028',
+                      fontFamily: '"Work Sans"',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      lineHeight: '10px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: classifying ? 'not-allowed' : 'pointer',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: '#FFE2BF',
+                      opacity: classifying ? 0.6 : 1
+                    }}
+                  >
+                    {classifying ? 'Classifying...' : 'Classify'}
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  <div
+                    style={{
+                      display: 'none',
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '4px',
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #D4D4D8',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                      zIndex: 1000,
+                      minWidth: '120px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.display = 'block'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  >
+                    {['work', 'personal', 'spam', 'unknown'].map(classification => (
+                      <div
+                        key={classification}
+                        onClick={() => bulkClassify(classification)}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontFamily: '"Work Sans", sans-serif',
+                          textTransform: 'capitalize',
+                          transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#F9FAFB'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent'
+                        }}
+                      >
+                        {classification}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Delete Button */}
+                <button
+                  onClick={deleteSelected}
+                  disabled={deleting}
                   style={{
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '2px',
-                    border: '0.6px solid #CB3CFF',
-                    backgroundColor: '#CB3CFF',
-                    boxShadow: '1px 1px 1px 0 rgba(16, 25, 52, 0.40)',
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    gap: '6px',
+                    color: '#081028',
+                    fontFamily: '"Work Sans"',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    lineHeight: '10px',
+                    background: 'none',
+                    border: 'none',
+                    cursor: deleting ? 'not-allowed' : 'pointer',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: '#FFE2BF',
+                    opacity: deleting ? 0.6 : 1
                   }}
                 >
-                  <Image src="/check.svg" alt="checked" width={6} height={5} />
-                </div>
-                {deleting ? 'Deleting...' : 'Delete all'}
-              </button>
+                  <div
+                    style={{
+                      width: '12px',
+                      height: '12px',
+                      borderRadius: '2px',
+                      border: '0.6px solid #CB3CFF',
+                      backgroundColor: '#CB3CFF',
+                      boxShadow: '1px 1px 1px 0 rgba(16, 25, 52, 0.40)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Image src="/check.svg" alt="checked" width={6} height={5} />
+                  </div>
+                  {deleting ? 'Deleting...' : 'Delete all'}
+                </button>
+              </div>
             )}
             
             {/* Table Header */}
@@ -657,6 +934,9 @@ export default function Documents() {
               </div>
               <div style={{ width: '150px', color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 500 }}>
                 Document Type
+              </div>
+              <div style={{ width: '120px', color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 500 }}>
+                Classification
               </div>
               <div style={{ width: '200px', color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 500 }}>
                 Description
@@ -734,6 +1014,13 @@ export default function Documents() {
                     </div>
                     <div style={{ width: '150px', color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 400, lineHeight: '16px' }}>
                       {doc.type}
+                    </div>
+                    <div style={{ width: '120px', display: 'flex', alignItems: 'center' }}>
+                      <ClassificationDropdown
+                        docId={doc.id}
+                        currentClassification={doc.classification}
+                        onClassify={classifyDocument}
+                      />
                     </div>
                     <div style={{ width: '200px', color: '#081028', fontFamily: '"Work Sans"', fontSize: '13px', fontWeight: 400, lineHeight: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {doc.description}

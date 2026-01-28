@@ -75,6 +75,7 @@ class ConnectorType(PyEnum):
     PUBMED = "pubmed"
     RESEARCHGATE = "researchgate"
     GOOGLESCHOLAR = "googlescholar"
+    WEBSCRAPER = "webscraper"
 
 
 class ConnectorStatus(PyEnum):

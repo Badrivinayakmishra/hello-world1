@@ -382,6 +382,150 @@ def classify_single_document(document_id: str):
         }), 500
 
 
+@document_bp.route('/<document_id>/classify', methods=['PUT'])
+@require_auth
+def manually_classify_document(document_id: str):
+    """
+    Manually set document classification (no AI, direct override).
+
+    Request body:
+    {
+        "classification": "work" | "personal" | "spam" | "unknown"
+    }
+    """
+    try:
+        data = request.get_json()
+        classification = data.get('classification', '').lower()
+
+        valid_classifications = ['work', 'personal', 'spam', 'unknown']
+        if classification not in valid_classifications:
+            return jsonify({
+                "success": False,
+                "error": f"Invalid classification. Must be one of: {', '.join(valid_classifications)}"
+            }), 400
+
+        db = get_db()
+        try:
+            document = db.query(Document).filter(
+                Document.id == document_id,
+                Document.tenant_id == g.tenant_id
+            ).first()
+
+            if not document:
+                return jsonify({
+                    "success": False,
+                    "error": "Document not found"
+                }), 404
+
+            # Update classification
+            from database.models import DocumentClassification, DocumentStatus
+            if classification == 'work':
+                document.classification = DocumentClassification.WORK
+            elif classification == 'personal':
+                document.classification = DocumentClassification.PERSONAL
+            elif classification == 'spam':
+                document.classification = DocumentClassification.SPAM
+            else:
+                document.classification = DocumentClassification.UNKNOWN
+
+            document.classification_confidence = 1.0  # Manual = 100% confidence
+            document.classification_reason = "Manually classified by user"
+            document.status = DocumentStatus.CONFIRMED
+            document.updated_at = utc_now()
+
+            db.commit()
+
+            return jsonify({
+                "success": True,
+                "document": {
+                    "id": document.id,
+                    "classification": document.classification.value
+                }
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@document_bp.route('/bulk/classify', methods=['POST'])
+@require_auth
+def bulk_classify_documents():
+    """
+    Manually classify multiple documents at once.
+
+    Request body:
+    {
+        "document_ids": ["id1", "id2", ...],
+        "classification": "work" | "personal" | "spam" | "unknown"
+    }
+    """
+    try:
+        data = request.get_json()
+        document_ids = data.get('document_ids', [])
+        classification = data.get('classification', '').lower()
+
+        if not document_ids:
+            return jsonify({
+                "success": False,
+                "error": "No document IDs provided"
+            }), 400
+
+        valid_classifications = ['work', 'personal', 'spam', 'unknown']
+        if classification not in valid_classifications:
+            return jsonify({
+                "success": False,
+                "error": f"Invalid classification. Must be one of: {', '.join(valid_classifications)}"
+            }), 400
+
+        db = get_db()
+        try:
+            # Map classification string to enum
+            from database.models import DocumentClassification, DocumentStatus
+            if classification == 'work':
+                class_enum = DocumentClassification.WORK
+            elif classification == 'personal':
+                class_enum = DocumentClassification.PERSONAL
+            elif classification == 'spam':
+                class_enum = DocumentClassification.SPAM
+            else:
+                class_enum = DocumentClassification.UNKNOWN
+
+            # Update all documents
+            updated_count = db.query(Document).filter(
+                Document.id.in_(document_ids),
+                Document.tenant_id == g.tenant_id
+            ).update({
+                'classification': class_enum,
+                'classification_confidence': 1.0,
+                'classification_reason': 'Bulk classified by user',
+                'status': DocumentStatus.CONFIRMED,
+                'updated_at': utc_now()
+            }, synchronize_session=False)
+
+            db.commit()
+
+            return jsonify({
+                "success": True,
+                "updated_count": updated_count,
+                "classification": classification
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 # ============================================================================
 # CONFIRMATION
 # ============================================================================
