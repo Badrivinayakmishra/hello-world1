@@ -276,6 +276,7 @@ export default function Documents() {
         // Create documents from API response with categorization
         const docs: Document[] = apiDocs.map((doc: any, index: number) => {
           // Determine category based on classification, folder path, and content
+          // PRIORITY ORDER: Backend classification > Folder path > Title keywords
           let category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' = 'Other Items'
           const title = doc.title?.toLowerCase() || ''
           const sourceType = doc.source_type?.toLowerCase() || ''
@@ -284,8 +285,25 @@ export default function Documents() {
           // Get folder path from metadata if available
           const folderPath = (doc.metadata?.folder_path || doc.metadata?.box_folder_path || '').toLowerCase()
 
-          // First priority: Use folder path for categorization (Box folder structure)
-          if (folderPath) {
+          // FIRST PRIORITY: Backend classification (most reliable)
+          // If the backend has classified this document, trust that classification
+          if (classification === 'personal' || classification === 'spam') {
+            category = 'Personal Items'
+          } else if (classification === 'work') {
+            // Further categorize work items based on title
+            if (title.includes('meeting') || title.includes('schedule') ||
+                title.includes('agenda') || title.includes('discussion') ||
+                title.includes('call') || title.includes('standup')) {
+              category = 'Meetings'
+            } else {
+              category = 'Documents'
+            }
+          }
+          // If classification is 'unknown' or missing, fall through to heuristics below
+
+          // Second priority: Use folder path for categorization (Box folder structure)
+          // Only apply if not already categorized by backend classification
+          if (category === 'Other Items' && folderPath) {
             if (folderPath.includes('meeting') || folderPath.includes('calendar') ||
                 folderPath.includes('schedule') || folderPath.includes('appointment')) {
               category = 'Meetings'
@@ -299,23 +317,8 @@ export default function Documents() {
             }
           }
 
-          // Second priority: Use backend classification
-          if (category === 'Other Items') {
-            if (classification === 'personal') {
-              category = 'Personal Items'
-            } else if (classification === 'work') {
-              // Further categorize work items based on title
-              if (title.includes('meeting') || title.includes('schedule') ||
-                  title.includes('agenda') || title.includes('discussion') ||
-                  title.includes('call') || title.includes('standup')) {
-                category = 'Meetings'
-              } else {
-                category = 'Documents'
-              }
-            }
-          }
-
           // Third priority: Fallback to content-based categorization
+          // Only apply if still uncategorized
           if (category === 'Other Items') {
             if (title.includes('meeting') || title.includes('schedule') ||
                 title.includes('agenda') || title.includes('discussion') ||
