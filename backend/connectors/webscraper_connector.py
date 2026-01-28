@@ -120,9 +120,16 @@ class WebScraperConnector(BaseConnector):
         Returns:
             List of Document objects
         """
+        print(f"[WebScraper] === SYNC STARTED ===")
+        print(f"[WebScraper] SCRAPER_AVAILABLE: {SCRAPER_AVAILABLE}")
+        print(f"[WebScraper] Current status: {self.status}")
+
         if self.status != ConnectorStatus.CONNECTED:
+            print(f"[WebScraper] Not connected, attempting to connect...")
             if not await self.connect():
+                print(f"[WebScraper] Connection failed, returning empty list")
                 return []
+            print(f"[WebScraper] Connection successful")
 
         self.status = ConnectorStatus.SYNCING
         documents = []
@@ -136,6 +143,7 @@ class WebScraperConnector(BaseConnector):
 
             print(f"[WebScraper] Starting crawl from {start_url}")
             print(f"[WebScraper] Max depth: {max_depth}, Max pages: {max_pages}")
+            print(f"[WebScraper] Base domain: {self.base_domain}")
             if priority_paths:
                 print(f"[WebScraper] Priority paths: {priority_paths}")
 
@@ -149,58 +157,80 @@ class WebScraperConnector(BaseConnector):
                 for path in priority_paths:
                     priority_url = urljoin(start_url, path)
                     priority_queue.append((priority_url, 1, True))
+                    print(f"[WebScraper] Added priority URL: {priority_url}")
 
             self.visited_urls.clear()
             pages_crawled = 0
 
+            print(f"[WebScraper] Priority queue size: {len(priority_queue)}")
+            print(f"[WebScraper] Regular queue size: {len(queue)}")
+
             # Process priority URLs first
             while priority_queue and pages_crawled < max_pages:
+                print(f"[WebScraper] Processing priority queue (size: {len(priority_queue)})")
                 url, depth, _ = priority_queue.popleft()
+                print(f"[WebScraper] Popped priority URL: {url} (depth: {depth})")
 
                 if url in self.visited_urls:
+                    print(f"[WebScraper] Already visited, skipping: {url}")
                     continue
 
+                print(f"[WebScraper] Crawling priority page: {url}")
                 doc = await self._crawl_page(url, depth)
                 if doc:
                     documents.append(doc)
                     pages_crawled += 1
-                    print(f"[WebScraper] Crawled priority page {pages_crawled}/{max_pages}: {url}")
+                    print(f"[WebScraper] ✓ Crawled priority page {pages_crawled}/{max_pages}: {url}")
 
                     # Extract links from priority pages
                     if depth < max_depth:
                         links = self._extract_links(doc.metadata.get("html_content", ""), url)
+                        print(f"[WebScraper] Extracted {len(links)} links from {url}")
                         for link in links:
                             if link not in self.visited_urls:
                                 queue.append((link, depth + 1, False))
+                else:
+                    print(f"[WebScraper] ✗ No document returned for: {url}")
 
                 time.sleep(rate_limit)
 
             # Process regular queue
+            print(f"[WebScraper] Starting regular queue processing (size: {len(queue)})")
             while queue and pages_crawled < max_pages:
                 url, depth, _ = queue.popleft()
+                print(f"[WebScraper] Popped URL: {url} (depth: {depth})")
 
                 if url in self.visited_urls:
+                    print(f"[WebScraper] Already visited, skipping: {url}")
                     continue
 
                 if depth > max_depth:
+                    print(f"[WebScraper] Depth {depth} exceeds max {max_depth}, skipping: {url}")
                     continue
 
+                print(f"[WebScraper] Crawling page: {url}")
                 doc = await self._crawl_page(url, depth)
                 if doc:
                     documents.append(doc)
                     pages_crawled += 1
-                    print(f"[WebScraper] Crawled page {pages_crawled}/{max_pages}: {url}")
+                    print(f"[WebScraper] ✓ Crawled page {pages_crawled}/{max_pages}: {url}")
 
                     # Extract links and add to queue
                     if depth < max_depth:
                         links = self._extract_links(doc.metadata.get("html_content", ""), url)
+                        print(f"[WebScraper] Extracted {len(links)} links from {url}")
                         for link in links:
                             if link not in self.visited_urls:
                                 queue.append((link, depth + 1, False))
+                else:
+                    print(f"[WebScraper] ✗ No document returned for: {url}")
 
                 time.sleep(rate_limit)
 
-            print(f"[WebScraper] Crawl complete. Pages: {pages_crawled}, Documents: {len(documents)}")
+            print(f"[WebScraper] === CRAWL COMPLETE ===")
+            print(f"[WebScraper] Pages crawled: {pages_crawled}")
+            print(f"[WebScraper] Documents created: {len(documents)}")
+            print(f"[WebScraper] URLs visited: {len(self.visited_urls)}")
 
             self.config.last_sync = datetime.now()
             self.status = ConnectorStatus.CONNECTED
@@ -228,10 +258,12 @@ class WebScraperConnector(BaseConnector):
         try:
             # Mark as visited
             self.visited_urls.add(url)
+            print(f"[WebScraper]   Marked as visited: {url}")
 
             # Check if URL should be excluded
             exclude_patterns = self.config.settings.get("exclude_patterns", [])
             if any(pattern in url for pattern in exclude_patterns):
+                print(f"[WebScraper]   Excluded by pattern: {url}")
                 return None
 
             # Check allowed extensions
@@ -239,35 +271,53 @@ class WebScraperConnector(BaseConnector):
             url_path = urlparse(url).path.lower()
             if allowed_extensions:
                 if not any(url_path.endswith(ext) for ext in allowed_extensions):
+                    print(f"[WebScraper]   Extension not allowed: {url_path}")
                     return None
 
             # Fetch page
+            print(f"[WebScraper]   Fetching: {url}")
             response = self.session.get(url, timeout=30, allow_redirects=True)
+            print(f"[WebScraper]   Response: {response.status_code}")
+
             if response.status_code != 200:
                 print(f"[WebScraper] Failed to fetch {url}: HTTP {response.status_code}")
                 return None
 
             content_type = response.headers.get("Content-Type", "").lower()
+            print(f"[WebScraper]   Content-Type: {content_type}")
 
             # Handle PDF
             if "application/pdf" in content_type or url_path.endswith(".pdf"):
+                print(f"[WebScraper]   Detected PDF")
                 if self.config.settings.get("include_pdfs", True):
                     return self._parse_pdf(url, response.content)
+                else:
+                    print(f"[WebScraper]   PDFs disabled, skipping")
                 return None
 
             # Handle HTML
             if "text/html" in content_type or not content_type:
-                return self._parse_html(url, response.text, depth)
+                print(f"[WebScraper]   Parsing HTML")
+                result = self._parse_html(url, response.text, depth)
+                if result:
+                    print(f"[WebScraper]   ✓ Successfully parsed HTML (content length: {len(result.content)})")
+                else:
+                    print(f"[WebScraper]   ✗ HTML parsing returned None")
+                return result
 
+            print(f"[WebScraper]   Unsupported content type: {content_type}")
             return None
 
         except Exception as e:
             print(f"[WebScraper] Error crawling {url}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _parse_html(self, url: str, html_content: str, depth: int) -> Optional[Document]:
         """Parse HTML page and extract text content"""
         try:
+            print(f"[WebScraper]     Parsing HTML (length: {len(html_content)})")
             soup = BeautifulSoup(html_content, "html.parser")
 
             # Remove script and style elements
@@ -277,6 +327,7 @@ class WebScraperConnector(BaseConnector):
             # Extract title
             title = soup.find("title")
             title_text = title.get_text().strip() if title else urlparse(url).path
+            print(f"[WebScraper]     Title: {title_text}")
 
             # Extract main content
             # Try to find main content area
@@ -295,7 +346,9 @@ class WebScraperConnector(BaseConnector):
             lines = [line.strip() for line in text.split("\n") if line.strip()]
             content = "\n\n".join(lines)
 
+            print(f"[WebScraper]     Extracted content length: {len(content)}")
             if len(content) < 100:  # Skip pages with very little content
+                print(f"[WebScraper]     Content too short (<100 chars), skipping")
                 return None
 
             # Extract metadata
