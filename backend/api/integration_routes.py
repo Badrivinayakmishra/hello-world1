@@ -2302,7 +2302,8 @@ def disconnect_connector(connector_type: str):
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
             "github": ConnectorType.GITHUB,
-            "pubmed": ConnectorType.PUBMED
+            "pubmed": ConnectorType.PUBMED,
+            "webscraper": ConnectorType.WEBSCRAPER
         }
 
         if connector_type not in type_map:
@@ -2366,7 +2367,8 @@ def connector_status(connector_type: str):
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
             "github": ConnectorType.GITHUB,
-            "pubmed": ConnectorType.PUBMED
+            "pubmed": ConnectorType.PUBMED,
+            "webscraper": ConnectorType.WEBSCRAPER
         }
 
         if connector_type not in type_map:
@@ -2431,7 +2433,8 @@ def update_connector_settings(connector_type: str):
             "slack": ConnectorType.SLACK,
             "box": ConnectorType.BOX,
             "github": ConnectorType.GITHUB,
-            "pubmed": ConnectorType.PUBMED
+            "pubmed": ConnectorType.PUBMED,
+            "webscraper": ConnectorType.WEBSCRAPER
         }
 
         if connector_type not in type_map:
