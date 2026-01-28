@@ -1640,20 +1640,12 @@ const integrations: Integration[] = [
   },
   {
     id: 'onedrive',
-    name: 'Microsoft OneDrive',
-    logo: '/powerpoint.png',
+    name: 'Microsoft 365',
+    logo: '/onedrive.png',
     description: 'Connect OneDrive to import PowerPoint, Excel, Word, and PDF files into your knowledge base.',
     category: 'Documents & Recordings',
     connected: false,
     isOAuth: true
-  },
-  {
-    id: 'excel',
-    name: 'Microsoft Excel',
-    logo: '/excel.png',
-    description: 'Excel learns your patterns, organizing your data to save you time.',
-    category: 'Documents & Recordings',
-    connected: false
   },
   {
     id: 'pubmed',
@@ -2071,6 +2063,15 @@ export default function Integrations() {
       window.history.replaceState({}, '', '/integrations')
       // Auto-start sync with progress for Box
       setTimeout(() => startSyncWithProgress('box'), 500)
+    } else if (success === 'onedrive') {
+      setIntegrationsState(prev =>
+        prev.map(int =>
+          int.id === 'onedrive' ? { ...int, connected: true } : int
+        )
+      )
+      window.history.replaceState({}, '', '/integrations')
+      // Auto-start sync with progress for OneDrive
+      setTimeout(() => startSyncWithProgress('onedrive'), 500)
     } else if (error) {
       setSyncStatus(`Connection failed: ${error}`)
       window.history.replaceState({}, '', '/integrations')
