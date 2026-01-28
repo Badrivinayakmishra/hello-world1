@@ -795,23 +795,20 @@ def box_auth():
         print("[BoxAuth] Starting Box OAuth flow...")
         from connectors.box_connector import BoxConnector
 
-        # Generate state
-        state = secrets.token_urlsafe(32)
+        # Generate JWT-based state (works across multiple workers)
         redirect_uri = os.getenv(
             "BOX_REDIRECT_URI",
             "http://localhost:5003/api/integrations/box/callback"
         )
         print(f"[BoxAuth] Redirect URI: {redirect_uri}")
 
-        # Store state
-        oauth_states[state] = {
-            "type": "box",
-            "tenant_id": g.tenant_id,
-            "user_id": g.user_id,
-            "redirect_uri": redirect_uri,
-            "created_at": utc_now().isoformat()
-        }
-        print(f"[BoxAuth] State stored for tenant: {g.tenant_id}")
+        state = create_oauth_state(
+            tenant_id=g.tenant_id,
+            user_id=g.user_id,
+            connector_type="box",
+            extra_data={"redirect_uri": redirect_uri}
+        )
+        print(f"[BoxAuth] JWT state created for tenant: {g.tenant_id}")
 
         # Get auth URL
         print("[BoxAuth] Getting auth URL from BoxConnector...")
@@ -860,13 +857,14 @@ def box_callback():
         if not code or not state:
             return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
 
-        # Verify state
-        state_data = oauth_states.pop(state, None)
-        if not state_data or state_data["type"] != "box":
+        # Verify JWT-based state
+        state_data, error = verify_oauth_state(state)
+        if error or not state_data or state_data.get("connector_type") != "box":
+            print(f"[BoxCallback] Invalid state: {error}")
             return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
 
         # Exchange code for tokens
-        redirect_uri = state_data["redirect_uri"]
+        redirect_uri = state_data.get("data", {}).get("redirect_uri")
         tokens, error = BoxConnector.exchange_code_for_tokens(code, redirect_uri)
 
         if error:
