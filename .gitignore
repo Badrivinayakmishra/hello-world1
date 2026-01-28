@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 venv_new/
+venv312/
+venv/
 __pycache__/
 *.pyc
 
@@ -26,6 +28,10 @@ build/
 *.pickle
 club_data/
 data/
+*.db
+*.sqlite
+*.sqlite3
+tenant_data/
 
 # Credentials
 *.json

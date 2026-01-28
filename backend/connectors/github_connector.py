@@ -40,8 +40,8 @@ class GitHubConnector(BaseConnector):
         "include_issues": True,
         "include_prs": True,
         "include_wiki": True,
-        "max_issues_per_repo": 100,
-        "max_prs_per_repo": 50,
+        "max_issues_per_repo": None,  # No limit - sync all issues
+        "max_prs_per_repo": None,  # No limit - sync all PRs
         "code_extensions": [".py", ".js", ".ts", ".md", ".json", ".yaml", ".yml"],
         "max_file_size": 100000  # Max file size in bytes
     }
@@ -210,14 +210,14 @@ class GitHubConnector(BaseConnector):
     async def _sync_issues(self, repo, since: Optional[datetime]) -> List[Document]:
         """Sync repository issues"""
         documents = []
-        max_issues = self.config.settings.get("max_issues_per_repo", 100)
+        max_issues = self.config.settings.get("max_issues_per_repo")  # None = unlimited
 
         try:
             issues = repo.get_issues(state="all", sort="updated", direction="desc")
 
             count = 0
             for issue in issues:
-                if count >= max_issues:
+                if max_issues is not None and count >= max_issues:
                     break
 
                 if since and issue.updated_at < since:
@@ -268,14 +268,14 @@ Comments ({issue.comments}):
     async def _sync_prs(self, repo, since: Optional[datetime]) -> List[Document]:
         """Sync pull requests"""
         documents = []
-        max_prs = self.config.settings.get("max_prs_per_repo", 50)
+        max_prs = self.config.settings.get("max_prs_per_repo")  # None = unlimited
 
         try:
             prs = repo.get_pulls(state="all", sort="updated", direction="desc")
 
             count = 0
             for pr in prs:
-                if count >= max_prs:
+                if max_prs is not None and count >= max_prs:
                     break
 
                 if since and pr.updated_at < since:

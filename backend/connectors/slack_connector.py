@@ -37,8 +37,8 @@ class SlackConnector(BaseConnector):
         "channels": [],  # Channel IDs to sync (empty = all accessible)
         "include_dms": True,  # Include DMs by default
         "include_threads": True,
-        "max_messages_per_channel": 1000,
-        "oldest_days": 365  # How far back to sync
+        "max_messages_per_channel": None,  # No limit - sync all messages
+        "oldest_days": None  # No time limit - sync all history
     }
 
     def __init__(self, config: ConnectorConfig):
@@ -199,18 +199,22 @@ class SlackConnector(BaseConnector):
     async def _sync_channel(self, channel: Dict, oldest: Optional[float]) -> List[Document]:
         """Sync messages from a single channel"""
         documents = []
-        max_messages = self.config.settings.get("max_messages_per_channel", 1000)
+        max_messages = self.config.settings.get("max_messages_per_channel")  # None = unlimited
 
         print(f"[Slack] Syncing channel: {channel['name']}")
 
         try:
             cursor = None
 
-            while len(documents) < max_messages:
+            while True:
+                # Check if we've hit the limit (if one exists)
+                if max_messages is not None and len(documents) >= max_messages:
+                    break
+
                 # Get message history
                 kwargs = {
                     "channel": channel["id"],
-                    "limit": min(200, max_messages - len(documents))
+                    "limit": 200 if max_messages is None else min(200, max_messages - len(documents))
                 }
 
                 if oldest:

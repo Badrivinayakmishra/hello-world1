@@ -265,21 +265,23 @@ def gmail_callback():
     Gmail OAuth callback handler.
     Called by Google after user authorization.
     """
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
     try:
         code = request.args.get('code')
         state = request.args.get('state')
         error = request.args.get('error')
 
         if error:
-            return redirect(f"/integrations?error={error}")
+            return redirect(f"{FRONTEND_URL}/integrations?error={error}")
 
         if not code or not state:
-            return redirect("/integrations?error=missing_params")
+            return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
 
         # Verify state
         state_data = oauth_states.pop(state, None)
         if not state_data or state_data["type"] != "gmail":
-            return redirect("/integrations?error=invalid_state")
+            return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
 
         from connectors.gmail_connector import GmailConnector
 
@@ -288,7 +290,7 @@ def gmail_callback():
         tokens, error = GmailConnector.exchange_code_for_tokens(code, redirect_uri)
 
         if error:
-            return redirect(f"/integrations?error={error}")
+            return redirect(f"{FRONTEND_URL}/integrations?error={error}")
 
         # Save connector to database
         db = get_db()
@@ -298,6 +300,8 @@ def gmail_callback():
                 Connector.tenant_id == state_data["tenant_id"],
                 Connector.connector_type == ConnectorType.GMAIL
             ).first()
+
+            is_first_connection = connector is None
 
             if connector:
                 # Update existing
@@ -323,13 +327,36 @@ def gmail_callback():
 
             db.commit()
 
-            return redirect("/integrations?success=gmail")
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = state_data["tenant_id"]
+                user_id = state_data["user_id"]
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="gmail",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[Gmail Callback] Started auto-sync for first-time connection")
+
+            return redirect(f"{FRONTEND_URL}/integrations?success=gmail")
 
         finally:
             db.close()
 
     except Exception as e:
-        return redirect(f"/integrations?error={str(e)}")
+        return redirect(f"{FRONTEND_URL}/integrations?error={str(e)}")
 
 
 # ============================================================================
@@ -685,6 +712,7 @@ def slack_callback():
 
             access_token = data.get("access_token")
             team_name = data.get("team", {}).get("name", "Slack")
+            is_first_connection = connector is None
 
             if connector:
                 connector.access_token = access_token
@@ -717,6 +745,29 @@ def slack_callback():
 
             db.commit()
             print(f"[Slack Callback] Successfully saved connector for team: {team_name}")
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = state_data["tenant_id"]
+                user_id = state_data["user_id"]
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="slack",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[Slack Callback] Started auto-sync for first-time connection")
 
             return redirect(f"{FRONTEND_URL}/integrations?success=slack")
 
@@ -829,6 +880,8 @@ def box_callback():
                 Connector.connector_type == ConnectorType.BOX
             ).first()
 
+            is_first_connection = connector is None
+
             if connector:
                 connector.access_token = tokens["access_token"]
                 connector.refresh_token = tokens["refresh_token"]
@@ -849,6 +902,29 @@ def box_callback():
                 db.add(connector)
 
             db.commit()
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = state_data["tenant_id"]
+                user_id = state_data["user_id"]
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="box",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[Box Callback] Started auto-sync for first-time connection")
 
             return redirect(f"{FRONTEND_URL}/integrations?success=box")
 
@@ -931,6 +1007,372 @@ def box_folders():
             "success": False,
             "error": str(e)
         }), 500
+
+
+# ============================================================================
+# GITHUB INTEGRATION
+# ============================================================================
+
+@integration_bp.route('/github/auth', methods=['GET'])
+@require_auth
+def github_auth():
+    """
+    Start GitHub OAuth flow.
+    """
+    try:
+        print("[GitHubAuth] Starting GitHub OAuth flow...")
+
+        # Generate state
+        state = secrets.token_urlsafe(32)
+        client_id = os.getenv("GITHUB_CLIENT_ID", "")
+        redirect_uri = os.getenv(
+            "GITHUB_REDIRECT_URI",
+            "http://localhost:5003/api/integrations/github/callback"
+        )
+
+        if not client_id:
+            return jsonify({
+                "success": False,
+                "error": "GitHub Client ID not configured"
+            }), 500
+
+        print(f"[GitHubAuth] Client ID: {client_id[:10]}...")
+        print(f"[GitHubAuth] Redirect URI: {redirect_uri}")
+
+        # Store state
+        oauth_states[state] = {
+            "type": "github",
+            "tenant_id": g.tenant_id,
+            "user_id": g.user_id,
+            "redirect_uri": redirect_uri,
+            "created_at": utc_now().isoformat()
+        }
+        print(f"[GitHubAuth] State stored for tenant: {g.tenant_id}")
+
+        # Build GitHub OAuth URL
+        auth_url = (
+            f"https://github.com/login/oauth/authorize"
+            f"?client_id={client_id}"
+            f"&redirect_uri={redirect_uri}"
+            f"&state={state}"
+            f"&scope=repo,read:user,read:org"  # Scopes for reading repos and user info
+        )
+
+        print(f"[GitHubAuth] Auth URL generated: {auth_url[:100]}...")
+
+        return jsonify({
+            "success": True,
+            "auth_url": auth_url,
+            "state": state
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"[GitHubAuth] Exception: {e}")
+        print(f"[GitHubAuth] Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@integration_bp.route('/github/callback', methods=['GET'])
+def github_callback():
+    """
+    GitHub OAuth callback handler.
+    """
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+    try:
+        import requests
+
+        code = request.args.get('code')
+        state = request.args.get('state')
+        error = request.args.get('error')
+
+        print(f"[GitHub Callback] code={code[:20] if code else None}..., state={state}, error={error}")
+
+        if error:
+            return redirect(f"{FRONTEND_URL}/integrations?error={error}")
+
+        if not code or not state:
+            return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
+
+        # Verify state
+        state_data = oauth_states.pop(state, None)
+        if not state_data or state_data["type"] != "github":
+            print(f"[GitHub Callback] Invalid state. Available states: {list(oauth_states.keys())}")
+            return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
+
+        # Exchange code for token
+        client_id = os.getenv("GITHUB_CLIENT_ID", "")
+        client_secret = os.getenv("GITHUB_CLIENT_SECRET", "")
+        redirect_uri = state_data["redirect_uri"]
+
+        print(f"[GitHub Callback] Exchanging code for token...")
+
+        response = requests.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri
+            },
+            headers={"Accept": "application/json"}
+        )
+
+        data = response.json()
+        print(f"[GitHub Callback] Token response: {list(data.keys())}")
+
+        if "error" in data:
+            error_msg = data.get('error_description', data.get('error', 'unknown'))
+            print(f"[GitHub Callback] OAuth failed: {error_msg}")
+            return redirect(f"{FRONTEND_URL}/integrations?error={error_msg}")
+
+        access_token = data.get("access_token")
+        if not access_token:
+            return redirect(f"{FRONTEND_URL}/integrations?error=no_access_token")
+
+        # Get user info
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json"
+            }
+        )
+        user_data = user_response.json()
+        github_username = user_data.get("login", "GitHub")
+
+        # Save connector
+        db = get_db()
+        try:
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == state_data["tenant_id"],
+                Connector.connector_type == ConnectorType.GITHUB
+            ).first()
+
+            is_first_connection = connector is None
+
+            if connector:
+                connector.access_token = access_token
+                connector.status = ConnectorStatus.CONNECTED
+                connector.is_active = True
+                connector.name = f"GitHub ({github_username})"
+                connector.error_message = None
+                connector.settings = {
+                    "username": github_username,
+                    "user_id": user_data.get("id")
+                }
+                connector.updated_at = utc_now()
+            else:
+                connector = Connector(
+                    tenant_id=state_data["tenant_id"],
+                    user_id=state_data["user_id"],
+                    connector_type=ConnectorType.GITHUB,
+                    name=f"GitHub ({github_username})",
+                    status=ConnectorStatus.CONNECTED,
+                    access_token=access_token,
+                    token_scopes=data.get("scope", "").split(","),
+                    settings={
+                        "username": github_username,
+                        "user_id": user_data.get("id")
+                    }
+                )
+                db.add(connector)
+
+            db.commit()
+            print(f"[GitHub Callback] Successfully saved connector for user: {github_username}")
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = state_data["tenant_id"]
+                user_id = state_data["user_id"]
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="github",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[GitHub Callback] Started auto-sync for first-time connection")
+
+            return redirect(f"{FRONTEND_URL}/integrations?success=github")
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[GitHub Callback] Exception: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return redirect(f"{FRONTEND_URL}/integrations?error={str(e)}")
+
+
+# ============================================================================
+# ONEDRIVE (MICROSOFT 365) INTEGRATION
+# ============================================================================
+
+@integration_bp.route('/onedrive/auth', methods=['GET'])
+@require_auth
+def onedrive_auth():
+    """
+    Start OneDrive/Microsoft 365 OAuth flow.
+    """
+    try:
+        print("[OneDriveAuth] Starting OneDrive OAuth flow...")
+        from connectors.onedrive_connector import OneDriveConnector
+
+        # Generate state
+        state = secrets.token_urlsafe(32)
+        redirect_uri = os.getenv(
+            "MICROSOFT_REDIRECT_URI",
+            "http://localhost:5003/api/integrations/onedrive/callback"
+        )
+        print(f"[OneDriveAuth] Redirect URI: {redirect_uri}")
+
+        # Store state
+        oauth_states[state] = {
+            "type": "onedrive",
+            "tenant_id": g.tenant_id,
+            "user_id": g.user_id,
+            "redirect_uri": redirect_uri,
+            "created_at": utc_now().isoformat()
+        }
+        print(f"[OneDriveAuth] State stored for tenant: {g.tenant_id}")
+
+        # Get auth URL
+        print("[OneDriveAuth] Getting auth URL from OneDriveConnector...")
+        auth_url = OneDriveConnector.get_auth_url(redirect_uri, state)
+        print(f"[OneDriveAuth] Auth URL generated: {auth_url[:100]}...")
+
+        return jsonify({
+            "success": True,
+            "auth_url": auth_url,
+            "state": state
+        })
+
+    except ImportError as e:
+        print(f"[OneDriveAuth] ImportError: {e}")
+        return jsonify({
+            "success": False,
+            "error": "MSAL not installed. Run: pip install msal"
+        }), 500
+    except Exception as e:
+        import traceback
+        print(f"[OneDriveAuth] Exception: {e}")
+        print(f"[OneDriveAuth] Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@integration_bp.route('/onedrive/callback', methods=['GET'])
+def onedrive_callback():
+    """
+    OneDrive OAuth callback handler.
+    """
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+    try:
+        from connectors.onedrive_connector import OneDriveConnector
+
+        code = request.args.get('code')
+        state = request.args.get('state')
+        error = request.args.get('error')
+
+        if error:
+            return redirect(f"{FRONTEND_URL}/integrations?error={error}")
+
+        if not code or not state:
+            return redirect(f"{FRONTEND_URL}/integrations?error=missing_params")
+
+        # Verify state
+        state_data = oauth_states.pop(state, None)
+        if not state_data or state_data["type"] != "onedrive":
+            return redirect(f"{FRONTEND_URL}/integrations?error=invalid_state")
+
+        # Exchange code for tokens
+        redirect_uri = state_data["redirect_uri"]
+        tokens, error = OneDriveConnector.exchange_code_for_tokens(code, redirect_uri)
+
+        if error:
+            return redirect(f"{FRONTEND_URL}/integrations?error={error}")
+
+        # Save connector
+        db = get_db()
+        try:
+            connector = db.query(Connector).filter(
+                Connector.tenant_id == state_data["tenant_id"],
+                Connector.connector_type == ConnectorType.ONEDRIVE
+            ).first()
+
+            is_first_connection = connector is None
+
+            if connector:
+                connector.access_token = tokens["access_token"]
+                connector.refresh_token = tokens["refresh_token"]
+                connector.status = ConnectorStatus.CONNECTED
+                connector.is_active = True
+                connector.error_message = None
+                connector.updated_at = utc_now()
+            else:
+                connector = Connector(
+                    tenant_id=state_data["tenant_id"],
+                    user_id=state_data["user_id"],
+                    connector_type=ConnectorType.ONEDRIVE,
+                    name="OneDrive",
+                    status=ConnectorStatus.CONNECTED,
+                    access_token=tokens["access_token"],
+                    refresh_token=tokens["refresh_token"]
+                )
+                db.add(connector)
+
+            db.commit()
+            print(f"[OneDrive Callback] Successfully saved connector")
+
+            # Auto-sync on first connection
+            if is_first_connection:
+                import threading
+                connector_id = connector.id
+                tenant_id = state_data["tenant_id"]
+                user_id = state_data["user_id"]
+
+                def run_initial_sync():
+                    _run_connector_sync(
+                        connector_id=connector_id,
+                        connector_type="onedrive",
+                        since=None,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        full_sync=True
+                    )
+
+                thread = threading.Thread(target=run_initial_sync)
+                thread.daemon = True
+                thread.start()
+
+                print(f"[OneDrive Callback] Started auto-sync for first-time connection")
+
+            return redirect(f"{FRONTEND_URL}/integrations?success=onedrive")
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return redirect(f"{FRONTEND_URL}/integrations?error={str(e)}")
 
 
 # ============================================================================
@@ -1085,6 +1527,12 @@ def _run_connector_sync(
             elif connector_type == "box":
                 from connectors.box_connector import BoxConnector
                 ConnectorClass = BoxConnector
+            elif connector_type == "github":
+                from connectors.github_connector import GitHubConnector
+                ConnectorClass = GitHubConnector
+            elif connector_type == "onedrive":
+                from connectors.onedrive_connector import OneDriveConnector
+                ConnectorClass = OneDriveConnector
             else:
                 sync_progress[progress_key]["status"] = "error"
                 sync_progress[progress_key]["error"] = f"Unknown connector type: {connector_type}"

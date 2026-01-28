@@ -69,6 +69,7 @@ class ConnectorType(PyEnum):
     SLACK = "slack"
     BOX = "box"
     GITHUB = "github"
+    ONEDRIVE = "onedrive"
     GOOGLE_DRIVE = "google_drive"
     NOTION = "notion"
 

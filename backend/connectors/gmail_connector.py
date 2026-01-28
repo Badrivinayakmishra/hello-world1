@@ -39,7 +39,7 @@ class GmailConnector(BaseConnector):
     CONNECTOR_TYPE = "gmail"
     REQUIRED_CREDENTIALS = ["access_token", "refresh_token"]
     OPTIONAL_SETTINGS = {
-        "max_results": 100,  # Max emails per sync
+        "max_results": None,  # No limit - sync all emails
         "labels": ["INBOX", "SENT"],  # Labels to sync
         "include_attachments": False,
         "include_spam": False,
@@ -173,6 +173,36 @@ class GmailConnector(BaseConnector):
             "expiry": credentials.expiry.isoformat() if credentials.expiry else None
         }
 
+    @classmethod
+    def exchange_code_for_tokens(cls, code: str, redirect_uri: str):
+        """
+        Exchange authorization code for tokens (sync wrapper for callback).
+        Returns (tokens_dict, error_string) tuple.
+        """
+        try:
+            if not GMAIL_AVAILABLE:
+                return None, "Gmail dependencies not installed. Run: pip install google-auth google-auth-oauthlib google-api-python-client"
+
+            flow = Flow.from_client_config(
+                cls._get_client_config(),
+                scopes=cls.SCOPES,
+                redirect_uri=redirect_uri
+            )
+
+            flow.fetch_token(code=code)
+            credentials = flow.credentials
+
+            tokens = {
+                "access_token": credentials.token,
+                "refresh_token": credentials.refresh_token,
+                "expiry": credentials.expiry.isoformat() if credentials.expiry else None
+            }
+
+            return tokens, None
+
+        except Exception as e:
+            return None, str(e)
+
     async def sync(self, since: Optional[datetime] = None) -> List[Document]:
         """Sync emails from Gmail"""
         if not self.service:
@@ -204,26 +234,51 @@ class GmailConnector(BaseConnector):
             labels = self.config.settings.get("labels", ["INBOX", "SENT"])
 
             for label in labels:
-                # List messages
-                results = self.service.users().messages().list(
-                    userId='me',
-                    labelIds=[label],
-                    q=query,
-                    maxResults=self.config.settings.get("max_results", 100)
-                ).execute()
+                # Get max_results setting (None = unlimited)
+                max_results = self.config.settings.get("max_results")
+                page_token = None
+                total_fetched = 0
 
-                messages = results.get('messages', [])
+                while True:
+                    # List messages with pagination
+                    list_params = {
+                        'userId': 'me',
+                        'labelIds': [label],
+                        'maxResults': 500  # Gmail API max per page
+                    }
 
-                for msg_info in messages:
-                    msg = self.service.users().messages().get(
-                        userId='me',
-                        id=msg_info['id'],
-                        format='full'
-                    ).execute()
+                    if query:
+                        list_params['q'] = query
 
-                    doc = self._message_to_document(msg, label)
-                    if doc:
-                        documents.append(doc)
+                    if page_token:
+                        list_params['pageToken'] = page_token
+
+                    results = self.service.users().messages().list(**list_params).execute()
+                    messages = results.get('messages', [])
+
+                    # Fetch each message
+                    for msg_info in messages:
+                        # Check if we've hit the user-defined limit
+                        if max_results is not None and total_fetched >= max_results:
+                            break
+
+                        msg = self.service.users().messages().get(
+                            userId='me',
+                            id=msg_info['id'],
+                            format='full'
+                        ).execute()
+
+                        doc = self._message_to_document(msg, label)
+                        if doc:
+                            documents.append(doc)
+                            total_fetched += 1
+
+                    # Check if we should continue pagination
+                    page_token = results.get('nextPageToken')
+
+                    # Stop if no more pages or hit user limit
+                    if not page_token or (max_results is not None and total_fetched >= max_results):
+                        break
 
             # Update stats
             self.sync_stats = {

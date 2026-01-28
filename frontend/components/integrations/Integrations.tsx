@@ -1615,17 +1615,19 @@ const integrations: Integration[] = [
     id: 'github',
     name: 'Github',
     logo: '/github.png',
-    description: 'GitHub is a web-based platform for collaborative software development.',
+    description: 'Connect GitHub to import repositories, issues, PRs, and documentation into your knowledge base.',
     category: 'Coding',
-    connected: false
+    connected: false,
+    isOAuth: true
   },
   {
-    id: 'powerpoint',
-    name: 'Microsoft Powerpoint',
+    id: 'onedrive',
+    name: 'Microsoft OneDrive',
     logo: '/powerpoint.png',
-    description: 'PowerPoint is a presentation software used to create slideshows',
+    description: 'Connect OneDrive to import PowerPoint, Excel, Word, and PDF files into your knowledge base.',
     category: 'Documents & Recordings',
-    connected: false
+    connected: false,
+    isOAuth: true
   },
   {
     id: 'excel',
