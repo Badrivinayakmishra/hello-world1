@@ -793,24 +793,20 @@ class BoxConnector(BaseConnector):
             if isinstance(modified_at, str):
                 modified_at = datetime.fromisoformat(modified_at.replace('Z', '+00:00'))
 
-            # Create document
+            # Create document (match format from _process_file_new_sdk)
             doc = Document(
-                id=f"box_{file_obj.id}",
-                source_type="box_file",
-                source_id=file_obj.id,
+                doc_id=f"box_{file_obj.id}",
+                source="box",
                 title=file_obj.name,
                 content=content,
                 metadata=metadata,
-                created_at=created_at,
-                updated_at=modified_at,
-                author=created_by.login if created_by else None
+                timestamp=modified_at or created_at,
+                author=created_by.login if created_by else None,
+                doc_type="document"
             )
 
             return doc
 
-        except BoxAPIException as e:
-            print(f"Error processing file {file_item.id}: {e.message}")
-            return None
         except Exception as e:
             print(f"Error processing file {file_item.id}: {str(e)}")
             return None
