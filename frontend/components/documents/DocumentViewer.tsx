@@ -31,6 +31,27 @@ export default function DocumentViewer({ document, onClose }: DocumentViewerProp
     return () => window.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
+  // Parse content if it's JSON from LlamaParse
+  const getDisplayContent = () => {
+    let content = document.content || 'No content available'
+
+    // Check if content is JSON from LlamaParse
+    if (content.trim().startsWith('{"text":') || content.trim().startsWith('{"markdown":')) {
+      try {
+        const parsed = JSON.parse(content)
+        if (parsed.text) {
+          content = parsed.text
+        } else if (parsed.markdown) {
+          content = parsed.markdown
+        }
+      } catch (e) {
+        // Not JSON or invalid JSON, use as-is
+      }
+    }
+
+    return content
+  }
+
   // Format classification for display
   const getClassificationBadge = () => {
     if (!document.classification) return null
@@ -298,7 +319,7 @@ export default function DocumentViewer({ document, onClose }: DocumentViewerProp
                 margin: 0
               }}
             >
-              {document.content || 'No content available'}
+              {getDisplayContent()}
             </pre>
           )}
         </div>
