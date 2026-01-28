@@ -307,6 +307,12 @@ export default function Documents() {
     const selectedDocs = documents.filter(d => d.selected)
     if (selectedDocs.length === 0) return
 
+    // Confirm deletion
+    const confirmMessage = `Are you sure you want to permanently delete ${selectedDocs.length} document(s)? This cannot be undone.`
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
     setDeleting(true)
     try {
       // Permanently delete from backend (hard delete prevents re-sync)
@@ -326,8 +332,8 @@ export default function Documents() {
         console.log('Delete results:', response.data.results)
       }
 
-      // Remove from local state
-      setDocuments(docs => docs.filter(d => !d.selected))
+      // Reload documents from backend to ensure UI is in sync
+      await loadDocuments()
       setCurrentPage(1)
     } catch (error: any) {
       console.error('Error deleting documents:', error)
