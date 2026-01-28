@@ -36,6 +36,7 @@ pydub==0.25.1
 # Integrations
 boxsdk==3.9.2
 slack-sdk==3.26.2
+PyGithub==2.1.1
 # Gmail - pinned to compatible versions
 protobuf==3.20.3
 google-auth==2.16.0
