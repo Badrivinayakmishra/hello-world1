@@ -15,11 +15,23 @@ class OpenAIClientWrapper:
 
         if self.use_azure:
             # Azure OpenAI configuration
-            self.client = AzureOpenAI(
-                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-                api_version=os.getenv("AZURE_API_VERSION", "2024-12-01-preview"),
-                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-            )
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            # Handle Azure AI Services project endpoints
+            if "/api/projects/" in endpoint:
+                # Remove trailing path for SDK compatibility
+                base_endpoint = endpoint.split("/api/projects/")[0]
+                self.client = AzureOpenAI(
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                    api_version=os.getenv("AZURE_API_VERSION", "2024-12-01-preview"),
+                    azure_endpoint=base_endpoint,
+                    default_headers={"api-project": endpoint.split("/api/projects/")[1]}
+                )
+            else:
+                self.client = AzureOpenAI(
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                    api_version=os.getenv("AZURE_API_VERSION", "2024-12-01-preview"),
+                    azure_endpoint=endpoint
+                )
             self.chat_model = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4")
             self.embedding_model = os.getenv("AZURE_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
         else:
