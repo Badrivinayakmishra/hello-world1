@@ -12,10 +12,10 @@ pyjwt==2.8.0
 bcrypt==4.1.2
 
 # OpenAI / Azure OpenAI
-openai==1.12.0
+openai>=1.12.0
 
 # Vector Database
-pinecone-client==3.0.0
+pinecone-client>=5.0.0
 
 # LlamaParse
 llama-parse==0.4.0
