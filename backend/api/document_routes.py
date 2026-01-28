@@ -249,6 +249,8 @@ def upload_documents():
                 from parsers.document_parser import DocumentParser
                 parser = DocumentParser()
 
+                parsing_errors = []  # Track errors for better feedback
+
                 for file in files:
                     if file.filename == '':
                         continue
@@ -262,32 +264,45 @@ def upload_documents():
                     lower_name = filename.lower()
 
                     try:
+                        print(f"[Upload] Processing file: {filename} ({len(file_content)} bytes)")
+
                         if lower_name.endswith('.pdf'):
+                            print(f"[Upload] Parsing PDF: {filename}")
                             text = parser.parse_pdf_bytes(file_content)
                         elif lower_name.endswith(('.docx', '.doc')):
+                            print(f"[Upload] Parsing Word doc: {filename}")
                             text = parser.parse_word_bytes(file_content)
                         elif lower_name.endswith('.txt'):
+                            print(f"[Upload] Parsing text file: {filename}")
                             text = file_content.decode('utf-8')
                         else:
                             # Try to decode as text
                             try:
+                                print(f"[Upload] Attempting to decode as text: {filename}")
                                 text = file_content.decode('utf-8')
-                            except:
-                                continue  # Skip unsupported files
+                            except Exception as decode_err:
+                                error_msg = f"Unsupported file type or encoding: {filename}"
+                                print(f"[Upload] {error_msg}: {decode_err}")
+                                parsing_errors.append(error_msg)
+                                continue
+
+                        print(f"[Upload] Extracted text length: {len(text) if text else 0}")
 
                         if not text or len(text.strip()) < 50:
-                            continue  # Skip empty/tiny files
+                            error_msg = f"File content too short (< 50 chars): {filename}"
+                            print(f"[Upload] {error_msg}")
+                            parsing_errors.append(error_msg)
+                            continue
 
                         # Create document
                         doc = Document(
                             tenant_id=g.tenant_id,
-                            user_id=g.user_id,
                             title=filename,
                             content=text,
                             source_type='manual_upload',
                             classification=DocumentClassification.UNKNOWN,
                             status=DocumentStatus.PENDING,
-                            metadata={
+                            doc_metadata={
                                 'filename': filename,
                                 'uploaded_by': g.user_id,
                                 'file_size': len(file_content)
@@ -303,7 +318,11 @@ def upload_documents():
                         })
 
                     except Exception as e:
-                        print(f"[Upload] Error parsing {filename}: {e}")
+                        error_msg = f"Failed to parse {filename}: {str(e)}"
+                        print(f"[Upload] {error_msg}")
+                        import traceback
+                        traceback.print_exc()
+                        parsing_errors.append(error_msg)
                         continue
 
             else:
@@ -343,14 +362,13 @@ def upload_documents():
                 # Create document
                 doc = Document(
                     tenant_id=g.tenant_id,
-                    user_id=g.user_id,
                     title=title,
                     content=content,
                     source_type='manual_paste',
                     classification=class_enum,
                     status=DocumentStatus.PENDING if class_enum == DocumentClassification.UNKNOWN else DocumentStatus.CONFIRMED,
                     classification_confidence=1.0 if class_enum != DocumentClassification.UNKNOWN else None,
-                    metadata={
+                    doc_metadata={
                         'uploaded_by': g.user_id,
                         'word_count': len(content.split())
                     }
@@ -365,9 +383,13 @@ def upload_documents():
                 })
 
             if not documents_created:
+                error_detail = "No valid documents were created."
+                if parsing_errors:
+                    error_detail += " Errors: " + "; ".join(parsing_errors[:3])  # Show first 3 errors
                 return jsonify({
                     "success": False,
-                    "error": "No valid documents were created"
+                    "error": error_detail,
+                    "parsing_errors": parsing_errors
                 }), 400
 
             db.commit()
@@ -539,14 +561,14 @@ def upload_from_url():
             # Create document
             doc = Document(
                 tenant_id=g.tenant_id,
-                user_id=g.user_id,
                 title=title,
                 content=text,
                 source_type='manual_url',
+                source_url=url,
                 classification=class_enum,
                 status=DocumentStatus.PENDING if class_enum == DocumentClassification.UNKNOWN else DocumentStatus.CONFIRMED,
                 classification_confidence=1.0 if class_enum != DocumentClassification.UNKNOWN else None,
-                metadata={
+                doc_metadata={
                     'url': url,
                     'content_type': content_type,
                     'uploaded_by': g.user_id,
