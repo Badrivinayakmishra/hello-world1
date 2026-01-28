@@ -2045,6 +2045,28 @@ def _run_connector_sync(
                     # Map connector Document attributes to database Document fields
                     # Connector Document uses: doc_id, source, content, title, metadata, timestamp, author
                     # Database Document expects: external_id, source_type, content, title, metadata, source_created_at, etc.
+
+                    # Auto-classify research sources as WORK (they're academic papers, not personal)
+                    research_sources = {'pubmed', 'researchgate', 'googlescholar', 'webscraper'}
+                    is_research = (
+                        doc.source.lower() in research_sources or
+                        getattr(doc, 'doc_type', None) == 'research_paper'
+                    )
+
+                    if is_research:
+                        # Research papers are always WORK
+                        classification = DocumentClassification.WORK
+                        status = DocumentStatus.CLASSIFIED  # Skip manual review
+                        classification_confidence = 1.0
+                        classification_reason = f"Auto-classified as WORK: {doc.source} research content"
+                        print(f"[Sync] Auto-classified research document as WORK: {doc.title[:50]}")
+                    else:
+                        # Other sources need AI classification
+                        classification = DocumentClassification.UNKNOWN
+                        status = DocumentStatus.PENDING
+                        classification_confidence = None
+                        classification_reason = None
+
                     db_doc = Document(
                         tenant_id=tenant_id,
                         connector_id=connector.id,
@@ -2056,8 +2078,10 @@ def _run_connector_sync(
                         sender=doc.author,
                         source_created_at=doc.timestamp,  # Fixed: was created_at, now timestamp
                         source_updated_at=doc.timestamp,  # Fixed: was updated_at, now timestamp
-                        status=DocumentStatus.PENDING,
-                        classification=DocumentClassification.UNKNOWN
+                        status=status,
+                        classification=classification,
+                        classification_confidence=classification_confidence,
+                        classification_reason=classification_reason
                     )
                     db.add(db_doc)
 
