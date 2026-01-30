@@ -1513,7 +1513,6 @@ export default function Documents() {
                   <input
                     type="file"
                     multiple
-                    accept=".pdf,.docx,.doc,.txt"
                     onChange={(e) => handleFileUpload(e.target.files)}
                     style={{ display: 'none' }}
                     id="file-upload"
