@@ -33,6 +33,14 @@ try:
 except ImportError:
     GAMMA_AVAILABLE = False
 
+# Import S3 service
+try:
+    from services.s3_service import get_s3_service
+    S3_AVAILABLE = True
+except ImportError:
+    S3_AVAILABLE = False
+    print("⚠ S3 service not available - files will be stored locally")
+
 # Optional imports for video generation
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -326,14 +334,71 @@ class VideoService:
             thumbnail_path = output_dir / f"{video.id}_thumb.jpg"
             self._generate_thumbnail(slide_images[0], str(thumbnail_path))
 
+            # Upload to S3 if available
+            video_url = str(output_path)
+            thumbnail_url = str(thumbnail_path)
+
+            if S3_AVAILABLE:
+                try:
+                    self._update_progress(db, video, 95, "Uploading to cloud storage...")
+                    s3_service = get_s3_service()
+
+                    # Upload video to S3
+                    s3_video_key = s3_service.generate_s3_key(
+                        tenant_id=tenant_id,
+                        file_type='videos',
+                        filename=f"{video.id}.mp4"
+                    )
+                    video_s3_url, video_error = s3_service.upload_file(
+                        file_path=str(output_path),
+                        s3_key=s3_video_key,
+                        content_type='video/mp4'
+                    )
+
+                    if video_s3_url:
+                        video_url = video_s3_url
+                        print(f"[VideoService] Video uploaded to S3: {video_s3_url}")
+                    else:
+                        print(f"[VideoService] S3 video upload failed: {video_error}, using local path")
+
+                    # Upload thumbnail to S3
+                    s3_thumb_key = s3_service.generate_s3_key(
+                        tenant_id=tenant_id,
+                        file_type='thumbnails',
+                        filename=f"{video.id}_thumb.jpg"
+                    )
+                    thumb_s3_url, thumb_error = s3_service.upload_file(
+                        file_path=str(thumbnail_path),
+                        s3_key=s3_thumb_key,
+                        content_type='image/jpeg'
+                    )
+
+                    if thumb_s3_url:
+                        thumbnail_url = thumb_s3_url
+                        print(f"[VideoService] Thumbnail uploaded to S3: {thumb_s3_url}")
+                    else:
+                        print(f"[VideoService] S3 thumbnail upload failed: {thumb_error}, using local path")
+
+                    # Clean up local files after successful S3 upload
+                    if video_s3_url and thumb_s3_url:
+                        try:
+                            output_path.unlink()
+                            thumbnail_path.unlink()
+                            print("[VideoService] Local video files cleaned up after S3 upload")
+                        except Exception as e:
+                            print(f"[VideoService] Warning: Failed to cleanup local files: {e}")
+
+                except Exception as e:
+                    print(f"[VideoService] S3 upload error: {e}, using local storage")
+
             # Update video record
             video.status = VideoStatus.COMPLETED
             video.completed_at = utc_now()
             video.progress_percent = 100
-            video.file_path = str(output_path)
-            video.thumbnail_path = str(thumbnail_path)
+            video.file_path = video_url
+            video.thumbnail_path = thumbnail_url
             video.duration_seconds = duration
-            video.file_size_bytes = output_path.stat().st_size
+            video.file_size_bytes = output_path.stat().st_size if output_path.exists() else 0
 
             db.commit()
 
@@ -984,7 +1049,7 @@ Respond in JSON format:
         return videos, total
 
     def delete_video(self, video_id: str, tenant_id: str) -> Tuple[bool, Optional[str]]:
-        """Delete a video and its files"""
+        """Delete a video and its files (from S3 or local storage)"""
         try:
             video = self.db.query(Video).filter(
                 Video.id == video_id,
@@ -994,11 +1059,36 @@ Respond in JSON format:
             if not video:
                 return False, "Video not found"
 
-            # Delete files
-            if video.file_path and Path(video.file_path).exists():
-                Path(video.file_path).unlink()
-            if video.thumbnail_path and Path(video.thumbnail_path).exists():
-                Path(video.thumbnail_path).unlink()
+            # Delete files from S3 or local storage
+            if S3_AVAILABLE:
+                try:
+                    s3_service = get_s3_service()
+
+                    # Check if file_path is S3 URL
+                    if video.file_path and video.file_path.startswith('http'):
+                        # Extract S3 key from URL
+                        s3_key = video.file_path.split(f"{s3_service.bucket_name}.s3.{s3_service.region}.amazonaws.com/")[1]
+                        s3_service.delete_file(s3_key)
+                    elif video.file_path and Path(video.file_path).exists():
+                        # Local file
+                        Path(video.file_path).unlink()
+
+                    # Check if thumbnail_path is S3 URL
+                    if video.thumbnail_path and video.thumbnail_path.startswith('http'):
+                        s3_key = video.thumbnail_path.split(f"{s3_service.bucket_name}.s3.{s3_service.region}.amazonaws.com/")[1]
+                        s3_service.delete_file(s3_key)
+                    elif video.thumbnail_path and Path(video.thumbnail_path).exists():
+                        # Local file
+                        Path(video.thumbnail_path).unlink()
+
+                except Exception as e:
+                    print(f"[VideoService] Error deleting files: {e}")
+            else:
+                # Fallback to local deletion only
+                if video.file_path and Path(video.file_path).exists():
+                    Path(video.file_path).unlink()
+                if video.thumbnail_path and Path(video.thumbnail_path).exists():
+                    Path(video.thumbnail_path).unlink()
 
             self.db.delete(video)
             self.db.commit()

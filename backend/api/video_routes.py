@@ -3,7 +3,7 @@ Video API Routes
 REST endpoints for video generation and management.
 """
 
-from flask import Blueprint, request, jsonify, g, send_file
+from flask import Blueprint, request, jsonify, g, send_file, redirect
 from pathlib import Path
 
 from database.models import SessionLocal, Video, VideoStatus, utc_now
@@ -321,18 +321,29 @@ def download_video(video_id: str):
                     "error": "Video not ready"
                 }), 400
 
-            if not video.file_path or not Path(video.file_path).exists():
+            if not video.file_path:
                 return jsonify({
                     "success": False,
                     "error": "Video file not found"
                 }), 404
 
-            return send_file(
-                video.file_path,
-                mimetype='video/mp4',
-                as_attachment=True,
-                download_name=f"{video.title}.mp4"
-            )
+            # Check if file is in S3 (URL starts with http)
+            if video.file_path.startswith('http'):
+                # Redirect to S3 URL
+                return redirect(video.file_path)
+            elif Path(video.file_path).exists():
+                # Serve local file
+                return send_file(
+                    video.file_path,
+                    mimetype='video/mp4',
+                    as_attachment=True,
+                    download_name=f"{video.title}.mp4"
+                )
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Video file not found"
+                }), 404
 
         finally:
             db.close()
@@ -371,16 +382,27 @@ def get_thumbnail(video_id: str):
                     "error": "Video not found"
                 }), 404
 
-            if not video.thumbnail_path or not Path(video.thumbnail_path).exists():
+            if not video.thumbnail_path:
                 return jsonify({
                     "success": False,
                     "error": "Thumbnail not found"
                 }), 404
 
-            return send_file(
-                video.thumbnail_path,
-                mimetype='image/jpeg'
-            )
+            # Check if file is in S3 (URL starts with http)
+            if video.thumbnail_path.startswith('http'):
+                # Redirect to S3 URL
+                return redirect(video.thumbnail_path)
+            elif Path(video.thumbnail_path).exists():
+                # Serve local file
+                return send_file(
+                    video.thumbnail_path,
+                    mimetype='image/jpeg'
+                )
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Thumbnail not found"
+                }), 404
 
         finally:
             db.close()
