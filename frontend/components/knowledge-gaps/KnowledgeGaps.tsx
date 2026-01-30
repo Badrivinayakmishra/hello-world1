@@ -1,12 +1,17 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Sidebar from '../shared/Sidebar'
 import axios from 'axios'
 import { useAuth, useAuthHeaders } from '@/contexts/AuthContext'
+import GapCard from './GapCard'
+import GapFilters from './GapFilters'
+import GapStats from './GapStats'
+import GapAnswerPanel from './GapAnswerPanel'
+import AnalysisModeSelector from './AnalysisModeSelector'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + '/api'
-const MAX_QUESTIONS = 30 // Cap at 30 questions
 
 interface KnowledgeGap {
   id: string
@@ -14,19 +19,34 @@ interface KnowledgeGap {
   project: string
   answered?: boolean
   answer?: string
+  category?: string
+  priority?: string
+  quality_score?: number
+  evidence?: string
+  context?: string
+  suggested_sources?: string[]
+  detection_method?: string
 }
 
 export default function KnowledgeGaps() {
+  const router = useRouter()
   const [activeItem, setActiveItem] = useState('Knowledge Gaps')
   const [gaps, setGaps] = useState<KnowledgeGap[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'unanswered' | 'answered'>('all')
+  const [generating, setGenerating] = useState(false)
   const [selectedGap, setSelectedGap] = useState<KnowledgeGap | null>(null)
   const [answer, setAnswer] = useState('')
-  const [generating, setGenerating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [isListening, setIsListening] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
+
+  // Filtering & Search
+  const [filter, setFilter] = useState<'all' | 'unanswered' | 'answered'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('')
+  const [selectedPriority, setSelectedPriority] = useState('')
+  const [sortBy, setSortBy] = useState('default')
+
+  // Analysis Mode
+  const [analysisMode, setAnalysisMode] = useState('intelligent')
 
   // Video generation state
   const [showVideoModal, setShowVideoModal] = useState(false)
@@ -41,8 +61,6 @@ export default function KnowledgeGaps() {
   } | null>(null)
   const [createdVideoId, setCreatedVideoId] = useState<string | null>(null)
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const authHeaders = useAuthHeaders()
   const { token } = useAuth()
 
@@ -67,13 +85,24 @@ export default function KnowledgeGaps() {
           const groupName = gap.title || gap.category || 'General'
           const questions = gap.questions || []
 
+          // Extract metadata from gap object
+          const gapMetadata = {
+            category: gap.category,
+            priority: gap.priority || 'medium',
+            quality_score: gap.quality_score,
+            evidence: gap.evidence,
+            context: gap.context || gap.description,
+            detection_method: gap.detection_method || gap.source
+          }
+
           if (questions.length === 0 && gap.description) {
             allGaps.push({
               id: gap.id,
               description: gap.description,
               project: groupName,
               answered: gap.status === 'answered' || gap.status === 'verified' || gap.status === 'closed',
-              answer: ''
+              answer: '',
+              ...gapMetadata
             })
           } else {
             questions.forEach((question: any, qIndex: number) => {
@@ -86,18 +115,14 @@ export default function KnowledgeGaps() {
                 description: questionText,
                 project: groupName,
                 answered: isAnswered || gap.status === 'answered' || gap.status === 'verified' || gap.status === 'closed',
-                answer: answerObj?.answer_text || ''
+                answer: answerObj?.answer_text || '',
+                ...gapMetadata
               })
             })
           }
         })
 
-        // Cap at MAX_QUESTIONS, prioritizing unanswered
-        const unanswered = allGaps.filter(g => !g.answered)
-        const answered = allGaps.filter(g => g.answered)
-        const capped = [...unanswered, ...answered].slice(0, MAX_QUESTIONS)
-
-        setGaps(capped)
+        setGaps(allGaps)
       }
     } catch (error) {
       console.error('Error loading knowledge gaps:', error)
@@ -111,7 +136,8 @@ export default function KnowledgeGaps() {
     try {
       const response = await axios.post(`${API_BASE}/knowledge/analyze`, {
         force: true,
-        include_pending: true
+        include_pending: true,
+        mode: analysisMode
       }, { headers: authHeaders })
 
       if (response.data.success) {
@@ -143,77 +169,38 @@ export default function KnowledgeGaps() {
       ))
 
       setSelectedGap({ ...selectedGap, answered: true, answer })
+      alert('Answer saved successfully!')
     } catch (error) {
       console.error('Error submitting answer:', error)
+      alert('Failed to save answer. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  // Voice recording
-  const startRecording = async () => {
+  const handleGapFeedback = async (helpful: boolean) => {
+    if (!selectedGap) return
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      mediaRecorderRef.current = mediaRecorder
-      chunksRef.current = []
+      const idParts = selectedGap.id.split('_')
+      const originalGapId = idParts.length > 1 ? idParts.slice(0, -1).join('_') : selectedGap.id
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
+      await axios.post(`${API_BASE}/knowledge/gaps/${originalGapId}/feedback`, {
+        useful: helpful
+      }, { headers: authHeaders })
 
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop())
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
-
-        if (audioBlob.size > 0) {
-          setIsTranscribing(true)
-          try {
-            const formData = new FormData()
-            formData.append('audio', audioBlob, 'recording.webm')
-            const response = await axios.post(`${API_BASE}/knowledge/transcribe`, formData, {
-              headers: { ...authHeaders, 'Content-Type': 'multipart/form-data' }
-            })
-            if (response.data.transcript) {
-              setAnswer(prev => prev ? `${prev} ${response.data.transcript}` : response.data.transcript)
-            }
-          } catch (error) {
-            console.error('Transcription error:', error)
-          } finally {
-            setIsTranscribing(false)
-          }
-        }
-        setIsListening(false)
-      }
-
-      mediaRecorder.start(1000)
-      setIsListening(true)
+      alert(helpful ? 'Thanks for the feedback!' : 'Feedback recorded. We\'ll improve gap detection.')
     } catch (error) {
-      console.error('Microphone error:', error)
-      setIsListening(false)
+      console.error('Error submitting feedback:', error)
     }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current?.state !== 'inactive') {
-      mediaRecorderRef.current?.stop()
-    }
-  }
-
-  const toggleRecording = () => {
-    if (isListening) stopRecording()
-    else startRecording()
   }
 
   // Video generation functions
   const handleGenerateTrainingVideo = () => {
     if (gaps.length === 0) {
-      alert('No knowledge gaps available. Please analyze documents first.')
+      alert('No gaps to create video from. Generate gaps first!')
       return
     }
-    setVideoTitle('')
-    setVideoDescription('')
-    setIncludeAnswers(true)
     setShowVideoModal(true)
   }
 
@@ -223,19 +210,12 @@ export default function KnowledgeGaps() {
       return
     }
 
-    if (gaps.length === 0) {
-      alert('No knowledge gaps available')
-      return
-    }
-
     setGeneratingVideo(true)
     try {
-      // Get actual gap IDs from the backend format
       const gapIds = gaps.map(g => {
-        // If the ID contains an underscore, it's a question index - extract the original gap ID
         const gapId = g.id.includes('_') ? g.id.split('_')[0] : g.id
         return gapId
-      }).filter((id, index, self) => self.indexOf(id) === index) // Remove duplicates
+      }).filter((id, index, self) => self.indexOf(id) === index)
 
       const response = await axios.post(
         `${API_BASE}/videos`,
@@ -252,15 +232,13 @@ export default function KnowledgeGaps() {
       if (response.data.success) {
         const videoId = response.data.video.id
         setCreatedVideoId(videoId)
-
-        // Start polling for progress
         pollVideoStatus(videoId)
       } else {
         alert('Failed to create video: ' + (response.data.error || 'Unknown error'))
         setGeneratingVideo(false)
       }
     } catch (error: any) {
-      console.error('Error creating training video:', error)
+      console.error('Error creating video:', error)
       alert('Failed to create video: ' + (error.response?.data?.error || error.message))
       setGeneratingVideo(false)
     }
@@ -281,40 +259,94 @@ export default function KnowledgeGaps() {
         })
 
         if (response.data.status === 'completed') {
-          // Video is ready!
           setTimeout(() => {
             setGeneratingVideo(false)
             setShowVideoModal(false)
             setVideoProgress(null)
             setCreatedVideoId(null)
             alert('Training video generated successfully! Redirecting to Training Guides...')
-            window.location.href = '/training-guides'
+            router.push('/training-guides')
           }, 1500)
         } else if (response.data.status === 'failed') {
           setGeneratingVideo(false)
           setVideoProgress(null)
           alert('Video generation failed: ' + (response.data.error_message || 'Unknown error'))
         } else {
-          // Still processing, poll again in 3 seconds
           setTimeout(() => pollVideoStatus(videoId), 3000)
         }
       }
     } catch (error: any) {
       console.error('Error polling video status:', error)
-      // Retry after 3 seconds
-      setTimeout(() => pollVideoStatus(videoId), 3000)
+      setGeneratingVideo(false)
+      setVideoProgress(null)
     }
   }
 
-  // Filter gaps
-  const filteredGaps = gaps.filter(g => {
-    if (filter === 'unanswered' && g.answered) return false
-    if (filter === 'answered' && !g.answered) return false
-    return true
-  })
+  // Filtering logic
+  const getFilteredAndSortedGaps = () => {
+    let filtered = gaps
 
+    // Filter by status
+    if (filter === 'answered') {
+      filtered = filtered.filter(g => g.answered)
+    } else if (filter === 'unanswered') {
+      filtered = filtered.filter(g => !g.answered)
+    }
+
+    // Search
+    if (searchQuery) {
+      filtered = filtered.filter(g =>
+        g.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        g.project.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    }
+
+    // Category filter
+    if (selectedCategory) {
+      filtered = filtered.filter(g => g.category === selectedCategory)
+    }
+
+    // Priority filter
+    if (selectedPriority) {
+      filtered = filtered.filter(g => g.priority === selectedPriority)
+    }
+
+    // Sort
+    switch (sortBy) {
+      case 'priority':
+        const priorityOrder = { high: 0, medium: 1, low: 2 }
+        filtered.sort((a, b) => {
+          const aPri = a.priority?.toLowerCase() as keyof typeof priorityOrder || 'medium'
+          const bPri = b.priority?.toLowerCase() as keyof typeof priorityOrder || 'medium'
+          return priorityOrder[aPri] - priorityOrder[bPri]
+        })
+        break
+      case 'unanswered':
+        filtered.sort((a, b) => (a.answered === b.answered ? 0 : a.answered ? 1 : -1))
+        break
+      case 'quality':
+        filtered.sort((a, b) => (b.quality_score || 0) - (a.quality_score || 0))
+        break
+      // default: keep original order
+    }
+
+    return filtered
+  }
+
+  const filteredGaps = getFilteredAndSortedGaps()
   const totalAnswered = gaps.filter(g => g.answered).length
-  const totalPending = gaps.length - totalAnswered
+  const totalPending = gaps.filter(g => !g.answered).length
+
+  // Get categories and priorities for filters
+  const categories = gaps.reduce((acc, g) => {
+    if (g.category) acc[g.category] = (acc[g.category] || 0) + 1
+    return acc
+  }, {} as { [key: string]: number })
+
+  const priorities = gaps.reduce((acc, g) => {
+    if (g.priority) acc[g.priority] = (acc[g.priority] || 0) + 1
+    return acc
+  }, {} as { [key: string]: number })
 
   return (
     <div className="flex h-screen bg-primary overflow-hidden">
@@ -322,359 +354,154 @@ export default function KnowledgeGaps() {
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <div className="px-8 py-6 bg-primary">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 style={{
-                color: '#081028',
-                fontFamily: '"Work Sans", sans-serif',
-                fontSize: '24px',
-                fontWeight: 600,
-                letterSpacing: '-0.01em'
-              }}>
-                Knowledge Gaps
-              </h1>
-              <p style={{
-                color: '#7E89AC',
-                fontFamily: '"Work Sans", sans-serif',
-                fontSize: '14px',
-                marginTop: '2px'
-              }}>
-                {totalPending} questions remaining · {totalAnswered} completed
-              </p>
-            </div>
+        <div className="p-8 bg-primary border-b border-gray-200">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-semibold" style={{ fontFamily: '"Work Sans", sans-serif', color: '#081028' }}>
+              Knowledge Gaps
+            </h1>
 
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={handleGenerateTrainingVideo}
-                disabled={gaps.length === 0}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 18px',
-                  borderRadius: '8px',
-                  backgroundColor: gaps.length === 0 ? '#ccc' : '#FF6B35',
-                  color: 'white',
-                  border: 'none',
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: gaps.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: gaps.length === 0 ? 0.6 : 1
-                }}
-              >
-                🎬 Generate Training Video
-              </button>
+            <div className="flex items-center gap-3">
+              {gaps.length > 0 && (
+                <button
+                  onClick={handleGenerateTrainingVideo}
+                  disabled={generatingVideo}
+                  className="px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                  style={{
+                    backgroundColor: '#F97316',
+                    color: 'white',
+                    fontFamily: '"Work Sans", sans-serif',
+                    cursor: generatingVideo ? 'wait' : 'pointer'
+                  }}
+                >
+                  📹 Generate Training Video
+                </button>
+              )}
 
               <button
                 onClick={generateQuestions}
                 disabled={generating}
+                className="px-4 py-2 rounded-lg font-medium text-sm transition-colors"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 18px',
-                  borderRadius: '8px',
                   backgroundColor: '#081028',
                   color: 'white',
-                  border: 'none',
                   fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: generating ? 'not-allowed' : 'pointer',
-                  opacity: generating ? 0.7 : 1
+                  cursor: generating ? 'wait' : 'pointer'
                 }}
               >
-                {generating ? 'Analyzing...' : 'Analyze Documents'}
+                {generating ? 'Analyzing...' : '🔍 Find Gaps'}
               </button>
             </div>
           </div>
 
-          {/* Progress bar */}
-          <div style={{ marginTop: '20px' }}>
-            <div style={{
-              height: '6px',
-              backgroundColor: 'rgba(8, 16, 40, 0.08)',
-              borderRadius: '3px',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                width: `${gaps.length > 0 ? (totalAnswered / gaps.length) * 100 : 0}%`,
-                height: '100%',
-                backgroundColor: '#10B981',
-                borderRadius: '3px',
-                transition: 'width 0.3s ease'
-              }} />
-            </div>
-          </div>
+          {/* Analysis Mode Selector */}
+          <AnalysisModeSelector
+            selectedMode={analysisMode}
+            onModeChange={setAnalysisMode}
+            isAnalyzing={generating}
+          />
 
-          {/* Filter tabs */}
-          <div style={{ display: 'flex', gap: '4px', marginTop: '20px' }}>
-            {(['all', 'unanswered', 'answered'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  backgroundColor: filter === f ? '#081028' : 'transparent',
-                  color: filter === f ? 'white' : '#7E89AC',
-                  border: 'none',
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  cursor: 'pointer'
-                }}
-              >
-                {f === 'all' ? `All (${gaps.length})` :
-                 f === 'unanswered' ? `Pending (${totalPending})` :
-                 `Done (${totalAnswered})`}
-              </button>
-            ))}
-          </div>
+          {/* Stats */}
+          {gaps.length > 0 && (
+            <div className="mt-6">
+              <GapStats
+                total={gaps.length}
+                answered={totalAnswered}
+                pending={totalPending}
+              />
+            </div>
+          )}
+
+          {/* Filter Tabs */}
+          {gaps.length > 0 && (
+            <div className="flex gap-2 mt-4">
+              {(['all', 'unanswered', 'answered'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className="px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                  style={{
+                    backgroundColor: filter === f ? '#081028' : 'transparent',
+                    color: filter === f ? 'white' : '#7E89AC',
+                    fontFamily: '"Work Sans", sans-serif'
+                  }}
+                >
+                  {f === 'all' ? `All (${gaps.length})` :
+                   f === 'unanswered' ? `Pending (${totalPending})` :
+                   `Done (${totalAnswered})`}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Main content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Questions list */}
-          <div style={{
-            flex: selectedGap ? '0 0 50%' : 1,
-            overflowY: 'auto',
-            padding: '0 32px 32px',
-            backgroundColor: '#FFF3E4'
-          }}>
+        {/* Main Content */}
+        <div className="flex-1 flex overflow-hidden bg-secondary">
+          {/* Questions List */}
+          <div className={`${selectedGap ? 'w-1/2' : 'flex-1'} overflow-y-auto p-8`}>
             {loading ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '200px',
-                color: '#7E89AC',
-                fontFamily: '"Work Sans", sans-serif'
-              }}>
-                Loading...
+              <div className="flex items-center justify-center h-64 text-gray-500">
+                Loading gaps...
               </div>
-            ) : filteredGaps.length === 0 ? (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '200px',
-                color: '#7E89AC',
-                fontFamily: '"Work Sans", sans-serif',
-                textAlign: 'center'
-              }}>
-                <p style={{ fontSize: '14px' }}>No questions found</p>
+            ) : gaps.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-center">
+                <p className="text-gray-600 mb-4">No knowledge gaps found yet</p>
+                <button
+                  onClick={generateQuestions}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                >
+                  🔍 Analyze Documents for Gaps
+                </button>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {filteredGaps.map((gap, index) => (
-                  <div
-                    key={gap.id}
-                    onClick={() => setSelectedGap(gap)}
-                    style={{
-                      padding: '16px 20px',
-                      borderRadius: '8px',
-                      backgroundColor: selectedGap?.id === gap.id ? '#FFE2BF' : 'white',
-                      border: selectedGap?.id === gap.id ? '2px solid #081028' : '1px solid rgba(8, 16, 40, 0.06)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                      {/* Number */}
-                      <span style={{
-                        color: gap.answered ? '#10B981' : '#7E89AC',
-                        fontFamily: '"Work Sans", sans-serif',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        minWidth: '24px'
-                      }}>
-                        {gap.answered ? '✓' : `${index + 1}.`}
-                      </span>
+              <>
+                {/* Filters */}
+                <GapFilters
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  selectedCategory={selectedCategory}
+                  onCategoryChange={setSelectedCategory}
+                  selectedPriority={selectedPriority}
+                  onPriorityChange={setSelectedPriority}
+                  sortBy={sortBy}
+                  onSortChange={setSortBy}
+                  categories={categories}
+                  priorities={priorities}
+                />
 
-                      {/* Question */}
-                      <p style={{
-                        color: gap.answered ? '#7E89AC' : '#081028',
-                        fontFamily: '"Work Sans", sans-serif',
-                        fontSize: '14px',
-                        lineHeight: '1.5',
-                        textDecoration: gap.answered ? 'line-through' : 'none',
-                        flex: 1
-                      }}>
-                        {gap.description}
-                      </p>
-                    </div>
+                {/* Gap Cards */}
+                {filteredGaps.length === 0 ? (
+                  <div className="text-center text-gray-500 py-12">
+                    No gaps match your filters
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredGaps.map((gap, index) => (
+                      <GapCard
+                        key={gap.id}
+                        gap={gap}
+                        index={index}
+                        isSelected={selectedGap?.id === gap.id}
+                        onClick={() => setSelectedGap(gap)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          {/* Answer panel */}
+          {/* Answer Panel */}
           {selectedGap && (
-            <div style={{
-              flex: '0 0 50%',
-              borderLeft: '1px solid rgba(8, 16, 40, 0.08)',
-              backgroundColor: 'white',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden'
-            }}>
-              {/* Panel header */}
-              <div style={{
-                padding: '16px 24px',
-                borderBottom: '1px solid rgba(8, 16, 40, 0.06)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end'
-              }}>
-                <button
-                  onClick={() => setSelectedGap(null)}
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#7E89AC'
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Content */}
-              <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
-                <p style={{
-                  color: '#081028',
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '16px',
-                  fontWeight: 500,
-                  lineHeight: '1.6',
-                  marginBottom: '24px'
-                }}>
-                  {selectedGap.description}
-                </p>
-
-                <p style={{
-                  color: '#7E89AC',
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  marginBottom: '10px'
-                }}>
-                  Your Answer
-                </p>
-
-                {selectedGap.answered && selectedGap.answer ? (
-                  <div style={{
-                    padding: '14px',
-                    backgroundColor: '#F0FDF4',
-                    borderRadius: '8px',
-                    border: '1px solid #BBF7D0'
-                  }}>
-                    <p style={{
-                      color: '#166534',
-                      fontFamily: '"Work Sans", sans-serif',
-                      fontSize: '14px',
-                      lineHeight: '1.5'
-                    }}>
-                      {selectedGap.answer}
-                    </p>
-                  </div>
-                ) : (
-                  <div style={{ position: 'relative' }}>
-                    <textarea
-                      value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
-                      placeholder="Type your answer..."
-                      style={{
-                        width: '100%',
-                        minHeight: '120px',
-                        padding: '12px',
-                        paddingRight: '44px',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(8, 16, 40, 0.12)',
-                        backgroundColor: isListening ? '#FEF2F2' : 'white',
-                        fontFamily: '"Work Sans", sans-serif',
-                        fontSize: '14px',
-                        lineHeight: '1.5',
-                        resize: 'vertical',
-                        outline: 'none',
-                        color: '#081028'
-                      }}
-                    />
-
-                    {/* Voice button */}
-                    <button
-                      onClick={toggleRecording}
-                      disabled={isTranscribing}
-                      style={{
-                        position: 'absolute',
-                        right: '8px',
-                        top: '8px',
-                        width: '28px',
-                        height: '28px',
-                        borderRadius: '6px',
-                        backgroundColor: isListening ? '#FEE2E2' : '#F3F4F6',
-                        border: 'none',
-                        cursor: isTranscribing ? 'wait' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '14px'
-                      }}
-                    >
-                      {isTranscribing ? '...' : isListening ? '⏹' : '🎤'}
-                    </button>
-                  </div>
-                )}
-
-                {isListening && (
-                  <p style={{
-                    color: '#EF4444',
-                    fontFamily: '"Work Sans", sans-serif',
-                    fontSize: '12px',
-                    marginTop: '8px'
-                  }}>
-                    Recording... click to stop
-                  </p>
-                )}
-              </div>
-
-              {/* Submit button */}
-              {!selectedGap.answered && (
-                <div style={{ padding: '16px 24px', borderTop: '1px solid rgba(8, 16, 40, 0.06)' }}>
-                  <button
-                    onClick={handleAnswerQuestion}
-                    disabled={!answer.trim() || submitting}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      backgroundColor: answer.trim() ? '#081028' : '#E5E7EB',
-                      color: answer.trim() ? 'white' : '#9CA3AF',
-                      border: 'none',
-                      fontFamily: '"Work Sans", sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      cursor: answer.trim() ? 'pointer' : 'not-allowed'
-                    }}
-                  >
-                    {submitting ? 'Saving...' : 'Save Answer'}
-                  </button>
-                </div>
-              )}
-            </div>
+            <GapAnswerPanel
+              gap={selectedGap}
+              answer={answer}
+              onAnswerChange={setAnswer}
+              onSubmit={handleAnswerQuestion}
+              isSubmitting={submitting}
+              onClose={() => setSelectedGap(null)}
+              onFeedback={handleGapFeedback}
+              authHeaders={authHeaders}
+            />
           )}
         </div>
       </div>
@@ -682,318 +509,89 @@ export default function KnowledgeGaps() {
       {/* Video Generation Modal */}
       {showVideoModal && (
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           onClick={() => !generatingVideo && setShowVideoModal(false)}
         >
           <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '12px',
-              padding: '32px',
-              maxWidth: '600px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-            }}
-            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
           >
+            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: '"Work Sans", sans-serif' }}>
+              Generate Training Video
+            </h3>
+
             {!generatingVideo ? (
-              <>
-                <h2 style={{
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '24px',
-                  fontWeight: 600,
-                  marginBottom: '8px',
-                  color: '#081028'
-                }}>
-                  🎬 Generate Training Video
-                </h2>
-
-                <p style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: '14px',
-                  color: '#71717A',
-                  marginBottom: '24px'
-                }}>
-                  Create an AI-powered training video from {gaps.length} knowledge gap(s) with Q&A format using Gamma AI
-                </p>
-
-                {/* Video Title */}
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: '14px',
-                    fontWeight: 500,
-                    display: 'block',
-                    marginBottom: '8px',
-                    color: '#081028'
-                  }}>
-                    Video Title *
-                  </label>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Video Title</label>
                   <input
                     type="text"
                     value={videoTitle}
-                    onChange={e => setVideoTitle(e.target.value)}
-                    placeholder="e.g., Knowledge Transfer - Q&A Session"
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      border: '1px solid #D4D4D8',
-                      fontSize: '14px',
-                      fontFamily: 'Inter, sans-serif'
-                    }}
+                    onChange={(e) => setVideoTitle(e.target.value)}
+                    placeholder="e.g., Q&A Training Session"
+                    className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500"
                   />
                 </div>
 
-                {/* Video Description */}
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: '14px',
-                    fontWeight: 500,
-                    display: 'block',
-                    marginBottom: '8px',
-                    color: '#081028'
-                  }}>
-                    Description (Optional)
-                  </label>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Description (Optional)</label>
                   <textarea
                     value={videoDescription}
-                    onChange={e => setVideoDescription(e.target.value)}
-                    placeholder="Brief description of this knowledge transfer session..."
+                    onChange={(e) => setVideoDescription(e.target.value)}
+                    placeholder="Brief description of the video content..."
+                    className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500 resize-none"
                     rows={3}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      border: '1px solid #D4D4D8',
-                      fontSize: '14px',
-                      fontFamily: 'Inter, sans-serif',
-                      resize: 'vertical'
-                    }}
                   />
                 </div>
 
-                {/* Include Answers Toggle */}
-                <div style={{
-                  marginBottom: '24px',
-                  padding: '16px',
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: '8px',
-                  border: '1px solid #E5E7EB'
-                }}>
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    cursor: 'pointer'
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={includeAnswers}
-                      onChange={e => setIncludeAnswers(e.target.checked)}
-                      style={{
-                        width: '18px',
-                        height: '18px',
-                        cursor: 'pointer'
-                      }}
-                    />
-                    <div>
-                      <p style={{
-                        fontFamily: 'Inter, sans-serif',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#081028',
-                        margin: 0
-                      }}>
-                        Include answers in video
-                      </p>
-                      <p style={{
-                        fontFamily: 'Inter, sans-serif',
-                        fontSize: '12px',
-                        color: '#6B7280',
-                        margin: '4px 0 0 0'
-                      }}>
-                        Video will show both questions and their answers. Uncheck for questions-only format.
-                      </p>
-                    </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="include-answers"
+                    checked={includeAnswers}
+                    onChange={(e) => setIncludeAnswers(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <label htmlFor="include-answers" className="text-sm">
+                    Include answered gaps (shows Q&A format)
                   </label>
                 </div>
 
-                {/* Knowledge Gaps Summary */}
-                <div style={{
-                  marginBottom: '24px',
-                  padding: '16px',
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: '8px',
-                  border: '1px solid #E5E7EB'
-                }}>
-                  <p style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    marginBottom: '8px',
-                    color: '#081028'
-                  }}>
-                    Content Summary:
-                  </p>
-                  <div style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: '12px',
-                    color: '#6B7280'
-                  }}>
-                    <p style={{ margin: '4px 0' }}>Total Questions: {gaps.length}</p>
-                    <p style={{ margin: '4px 0' }}>Answered: {totalAnswered}</p>
-                    <p style={{ margin: '4px 0' }}>Unanswered: {totalPending}</p>
-                  </div>
-                </div>
-
-                {/* Info Box */}
-                <div style={{
-                  padding: '12px 16px',
-                  backgroundColor: '#FFF7ED',
-                  border: '1px solid #FDBA74',
-                  borderRadius: '8px',
-                  marginBottom: '24px'
-                }}>
-                  <p style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: '12px',
-                    color: '#9A3412',
-                    margin: 0
-                  }}>
-                    ⚡ Gamma AI will create a Q&A format presentation with professional design and narration. This typically takes 3-5 minutes.
-                  </p>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <div className="flex gap-2 pt-4">
+                  <button
+                    onClick={createTrainingVideo}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Create Video
+                  </button>
                   <button
                     onClick={() => setShowVideoModal(false)}
-                    style={{
-                      padding: '10px 20px',
-                      borderRadius: '8px',
-                      border: '1px solid #D4D4D8',
-                      backgroundColor: '#FFFFFF',
-                      color: '#081028',
-                      fontFamily: '"Work Sans", sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      cursor: 'pointer'
-                    }}
+                    className="px-4 py-2 border rounded-lg hover:bg-gray-50"
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={createTrainingVideo}
-                    disabled={!videoTitle.trim()}
-                    style={{
-                      padding: '10px 20px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      backgroundColor: !videoTitle.trim() ? '#ccc' : '#FF6B35',
-                      color: '#FFFFFF',
-                      fontFamily: '"Work Sans", sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      cursor: !videoTitle.trim() ? 'not-allowed' : 'pointer',
-                      opacity: !videoTitle.trim() ? 0.6 : 1
-                    }}
-                  >
-                    Generate Video
-                  </button>
                 </div>
-              </>
+              </div>
             ) : (
-              /* Video Generation Progress */
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  margin: '0 auto 24px',
-                  borderRadius: '50%',
-                  border: '4px solid #FFE2BF',
-                  borderTop: '4px solid #FF6B35',
-                  animation: 'spin 1s linear infinite'
-                }}>
-                  <style jsx>{`
-                    @keyframes spin {
-                      0% { transform: rotate(0deg); }
-                      100% { transform: rotate(360deg); }
-                    }
-                  `}</style>
+              <div className="space-y-4">
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-4">🎬</div>
+                  <p className="text-lg font-medium mb-2">Generating Video...</p>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {videoProgress?.current_step || 'Processing...'}
+                  </p>
+
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-300"
+                      style={{ width: `${videoProgress?.progress_percent || 0}%` }}
+                    />
+                  </div>
+
+                  <p className="text-xs text-gray-500 mt-2">
+                    {videoProgress?.progress_percent || 0}% complete
+                  </p>
                 </div>
-
-                <h3 style={{
-                  fontFamily: '"Work Sans", sans-serif',
-                  fontSize: '20px',
-                  fontWeight: 600,
-                  marginBottom: '12px',
-                  color: '#081028'
-                }}>
-                  Generating Training Video...
-                </h3>
-
-                {videoProgress && (
-                  <>
-                    <p style={{
-                      fontFamily: 'Inter, sans-serif',
-                      fontSize: '14px',
-                      color: '#6B7280',
-                      marginBottom: '16px'
-                    }}>
-                      {videoProgress.current_step}
-                    </p>
-
-                    {/* Progress Bar */}
-                    <div style={{
-                      width: '100%',
-                      height: '8px',
-                      backgroundColor: '#E5E7EB',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                      marginBottom: '8px'
-                    }}>
-                      <div style={{
-                        width: `${videoProgress.progress_percent}%`,
-                        height: '100%',
-                        backgroundColor: '#FF6B35',
-                        transition: 'width 0.3s ease'
-                      }} />
-                    </div>
-
-                    <p style={{
-                      fontFamily: '"Work Sans", sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#081028'
-                    }}>
-                      {videoProgress.progress_percent}% Complete
-                    </p>
-                  </>
-                )}
-
-                <p style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: '12px',
-                  color: '#9CA3AF',
-                  marginTop: '24px'
-                }}>
-                  This may take a few minutes. Please don't close this window.
-                </p>
               </div>
             )}
           </div>
