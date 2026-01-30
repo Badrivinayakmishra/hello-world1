@@ -66,6 +66,11 @@ beautifulsoup4==4.12.3
 httpx==0.26.0
 python-dateutil==2.8.2
 
+# Background Job Processing
+celery==5.3.4
+redis==5.0.1
+kombu==5.3.4
+
 # NLP
 spacy==3.7.2
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
