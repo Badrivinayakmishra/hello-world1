@@ -4,7 +4,7 @@ Background tasks for generating embeddings and updating vector store.
 """
 
 from celery_app import celery
-from database.config import get_db
+from database.models import get_db
 from services.embedding_service import EmbeddingService
 
 

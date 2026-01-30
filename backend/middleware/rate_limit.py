@@ -194,8 +194,7 @@ def rate_limit_by_plan(action: str = "general"):
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            from database.config import get_db
-            from database.models import Tenant
+            from database.models import get_db, Tenant
 
             tenant_id = getattr(g, 'tenant_id', None)
             if not tenant_id:

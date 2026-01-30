@@ -4,8 +4,7 @@ Background tasks for syncing data from integrations (Gmail, Slack, Box, GitHub).
 """
 
 from celery_app import celery
-from database.config import get_db
-from database.models import Connector
+from database.models import get_db, Connector
 from connectors.gmail_connector import GmailConnector
 from connectors.slack_connector import SlackConnector
 from connectors.box_connector import BoxConnector

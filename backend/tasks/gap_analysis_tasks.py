@@ -4,7 +4,7 @@ Background tasks for analyzing documents and identifying knowledge gaps.
 """
 
 from celery_app import celery
-from database.config import get_db
+from database.models import get_db
 from services.knowledge_service import KnowledgeService
 
 

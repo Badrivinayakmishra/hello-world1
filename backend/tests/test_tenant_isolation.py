@@ -6,8 +6,8 @@ Critical tests to ensure multi-tenant data isolation.
 import pytest
 import jwt
 from datetime import datetime, timedelta
-from database.config import get_db, JWT_SECRET_KEY, JWT_ALGORITHM
-from database.models import Tenant, User, Document, KnowledgeGap, Connector, UserRole, TenantPlan
+from database.config import JWT_SECRET_KEY, JWT_ALGORITHM
+from database.models import get_db, Tenant, User, Document, KnowledgeGap, Connector, UserRole, TenantPlan
 from services.auth_service import JWTUtils, PasswordUtils
 import sys
 import os

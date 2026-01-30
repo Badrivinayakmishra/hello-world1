@@ -4,7 +4,7 @@ Background tasks for generating training videos.
 """
 
 from celery_app import celery
-from database.config import get_db
+from database.models import get_db
 from services.video_service import VideoService
 
 
