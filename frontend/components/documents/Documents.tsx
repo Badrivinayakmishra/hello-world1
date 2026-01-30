@@ -818,10 +818,10 @@ export default function Documents() {
             alert('Video generated successfully! Redirecting to Training Guides...')
             router.push('/training-guides')
           }, 1500)
-        } else if (status.status === 'failed') {
+        } else if (response.data.status === 'failed') {
           setGeneratingVideo(false)
           setVideoProgress(null)
-          alert('Video generation failed: ' + (status.error_message || 'Unknown error'))
+          alert('Video generation failed: ' + (response.data.error_message || 'Unknown error'))
         } else {
           // Still processing, poll again in 3 seconds
           setTimeout(() => pollVideoStatus(videoId), 3000)
