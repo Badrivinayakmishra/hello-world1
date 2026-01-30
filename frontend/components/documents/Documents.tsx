@@ -254,6 +254,19 @@ export default function Documents() {
   const [textContent, setTextContent] = useState('')
   const [textClassification, setTextClassification] = useState('unknown')
   const [urlInput, setUrlInput] = useState('')
+
+  // Video generation modal state
+  const [showVideoModal, setShowVideoModal] = useState(false)
+  const [videoTitle, setVideoTitle] = useState('')
+  const [videoDescription, setVideoDescription] = useState('')
+  const [generatingVideo, setGeneratingVideo] = useState(false)
+  const [videoProgress, setVideoProgress] = useState<{
+    status: string
+    progress_percent: number
+    current_step: string
+  } | null>(null)
+  const [createdVideoId, setCreatedVideoId] = useState<string | null>(null)
+
   const authHeaders = useAuthHeaders()
   const { token } = useAuth()
   const router = useRouter()
@@ -727,6 +740,101 @@ export default function Documents() {
     }
   }
 
+  // Video generation functions
+  const handleGenerateVideo = () => {
+    const selectedDocs = documents.filter(d => d.selected)
+    if (selectedDocs.length === 0) {
+      alert('Please select at least one document to generate a video')
+      return
+    }
+    setVideoTitle('')
+    setVideoDescription('')
+    setShowVideoModal(true)
+  }
+
+  const createVideo = async () => {
+    if (!videoTitle.trim()) {
+      alert('Please enter a video title')
+      return
+    }
+
+    const selectedDocIds = documents.filter(d => d.selected).map(d => d.id)
+    if (selectedDocIds.length === 0) {
+      alert('Please select at least one document')
+      return
+    }
+
+    setGeneratingVideo(true)
+    try {
+      const response = await axios.post(
+        `${API_BASE}/videos`,
+        {
+          title: videoTitle,
+          description: videoDescription || undefined,
+          source_type: 'documents',
+          source_ids: selectedDocIds
+        },
+        { headers: authHeaders }
+      )
+
+      if (response.data.success) {
+        const videoId = response.data.video.id
+        setCreatedVideoId(videoId)
+
+        // Start polling for progress
+        pollVideoStatus(videoId)
+      } else {
+        alert('Failed to create video: ' + (response.data.error || 'Unknown error'))
+        setGeneratingVideo(false)
+      }
+    } catch (error: any) {
+      console.error('Error creating video:', error)
+      alert('Failed to create video: ' + (error.response?.data?.error || error.message))
+      setGeneratingVideo(false)
+    }
+  }
+
+  const pollVideoStatus = async (videoId: string) => {
+    try {
+      const response = await axios.get(
+        `${API_BASE}/videos/${videoId}/status`,
+        { headers: authHeaders }
+      )
+
+      if (response.data.success) {
+        const status = response.data.status
+        setVideoProgress({
+          status: status.status,
+          progress_percent: status.progress_percent || 0,
+          current_step: status.current_step || 'Processing...'
+        })
+
+        if (status.status === 'completed') {
+          // Video is ready!
+          setTimeout(() => {
+            setGeneratingVideo(false)
+            setShowVideoModal(false)
+            setVideoProgress(null)
+            setCreatedVideoId(null)
+            alert('Video generated successfully! Redirecting to Training Guides...')
+            router.push('/training-guides')
+          }, 1500)
+        } else if (status.status === 'failed') {
+          setGeneratingVideo(false)
+          setVideoProgress(null)
+          alert('Video generation failed: ' + (status.error_message || 'Unknown error'))
+        } else {
+          // Still processing, poll again in 3 seconds
+          setTimeout(() => pollVideoStatus(videoId), 3000)
+        }
+      }
+    } catch (error: any) {
+      console.error('Error polling video status:', error)
+      // Retry after 3 seconds
+      setTimeout(() => pollVideoStatus(videoId), 3000)
+    }
+  }
+
   const hasSelectedDocs = documents.some(d => d.selected)
 
   const counts = getCategoryCounts()
@@ -809,6 +917,31 @@ export default function Documents() {
               }}
             >
               Add Documents
+            </button>
+
+            <button
+              onClick={handleGenerateVideo}
+              disabled={!hasSelectedDocs}
+              style={{
+                display: 'flex',
+                width: '160px',
+                height: '42px',
+                padding: '0 16px',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: '4px',
+                backgroundColor: !hasSelectedDocs ? '#ccc' : '#FF6B35',
+                border: 'none',
+                cursor: !hasSelectedDocs ? 'not-allowed' : 'pointer',
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: '#FFFFFF',
+                opacity: !hasSelectedDocs ? 0.6 : 1
+              }}
+            >
+              🎬 Generate Video
             </button>
 
             <button
@@ -1655,6 +1788,289 @@ export default function Documents() {
             >
               Loading document...
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Video Generation Modal */}
+      {showVideoModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => !generatingVideo && setShowVideoModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '12px',
+              padding: '32px',
+              maxWidth: '600px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {!generatingVideo ? (
+              <>
+                <h2 style={{
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '24px',
+                  fontWeight: 600,
+                  marginBottom: '8px',
+                  color: '#081028'
+                }}>
+                  🎬 Generate Training Video
+                </h2>
+
+                <p style={{
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: '14px',
+                  color: '#71717A',
+                  marginBottom: '24px'
+                }}>
+                  Create an AI-powered training video from {documents.filter(d => d.selected).length} selected document(s) using Gamma AI
+                </p>
+
+                {/* Video Title */}
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    display: 'block',
+                    marginBottom: '8px',
+                    color: '#081028'
+                  }}>
+                    Video Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={videoTitle}
+                    onChange={e => setVideoTitle(e.target.value)}
+                    placeholder="e.g., Onboarding Training - Week 1"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid #D4D4D8',
+                      fontSize: '14px',
+                      fontFamily: 'Inter, sans-serif'
+                    }}
+                  />
+                </div>
+
+                {/* Video Description */}
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    display: 'block',
+                    marginBottom: '8px',
+                    color: '#081028'
+                  }}>
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={videoDescription}
+                    onChange={e => setVideoDescription(e.target.value)}
+                    placeholder="Brief description of what this training video covers..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid #D4D4D8',
+                      fontSize: '14px',
+                      fontFamily: 'Inter, sans-serif',
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+
+                {/* Selected Documents List */}
+                <div style={{
+                  marginBottom: '24px',
+                  padding: '16px',
+                  backgroundColor: '#F9FAFB',
+                  borderRadius: '8px',
+                  border: '1px solid #E5E7EB'
+                }}>
+                  <p style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    marginBottom: '8px',
+                    color: '#081028'
+                  }}>
+                    Selected Documents ({documents.filter(d => d.selected).length}):
+                  </p>
+                  <ul style={{
+                    margin: 0,
+                    paddingLeft: '20px',
+                    maxHeight: '120px',
+                    overflow: 'auto'
+                  }}>
+                    {documents.filter(d => d.selected).map(doc => (
+                      <li key={doc.id} style={{
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: '12px',
+                        color: '#6B7280',
+                        marginBottom: '4px'
+                      }}>
+                        {doc.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Info Box */}
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#FFF7ED',
+                  border: '1px solid #FDBA74',
+                  borderRadius: '8px',
+                  marginBottom: '24px'
+                }}>
+                  <p style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: '12px',
+                    color: '#9A3412',
+                    margin: 0
+                  }}>
+                    ⚡ Gamma AI will generate a professional presentation, convert it to video with narration. This typically takes 3-5 minutes.
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowVideoModal(false)}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: '1px solid #D4D4D8',
+                      backgroundColor: '#FFFFFF',
+                      color: '#081028',
+                      fontFamily: '"Work Sans", sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={createVideo}
+                    disabled={!videoTitle.trim()}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: !videoTitle.trim() ? '#ccc' : '#FF6B35',
+                      color: '#FFFFFF',
+                      fontFamily: '"Work Sans", sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      cursor: !videoTitle.trim() ? 'not-allowed' : 'pointer',
+                      opacity: !videoTitle.trim() ? 0.6 : 1
+                    }}
+                  >
+                    Generate Video
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Video Generation Progress */
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <div style={{
+                  width: '80px',
+                  height: '80px',
+                  margin: '0 auto 24px',
+                  borderRadius: '50%',
+                  border: '4px solid #FFE2BF',
+                  borderTop: '4px solid #FF6B35',
+                  animation: 'spin 1s linear infinite'
+                }}>
+                  <style jsx>{`
+                    @keyframes spin {
+                      0% { transform: rotate(0deg); }
+                      100% { transform: rotate(360deg); }
+                    }
+                  `}</style>
+                </div>
+
+                <h3 style={{
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '20px',
+                  fontWeight: 600,
+                  marginBottom: '12px',
+                  color: '#081028'
+                }}>
+                  Generating Your Video...
+                </h3>
+
+                {videoProgress && (
+                  <>
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: '14px',
+                      color: '#6B7280',
+                      marginBottom: '16px'
+                    }}>
+                      {videoProgress.current_step}
+                    </p>
+
+                    {/* Progress Bar */}
+                    <div style={{
+                      width: '100%',
+                      height: '8px',
+                      backgroundColor: '#E5E7EB',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      marginBottom: '8px'
+                    }}>
+                      <div style={{
+                        width: `${videoProgress.progress_percent}%`,
+                        height: '100%',
+                        backgroundColor: '#FF6B35',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+
+                    <p style={{
+                      fontFamily: '"Work Sans", sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: '#081028'
+                    }}>
+                      {videoProgress.progress_percent}% Complete
+                    </p>
+                  </>
+                )}
+
+                <p style={{
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: '12px',
+                  color: '#9CA3AF',
+                  marginTop: '24px'
+                }}>
+                  This may take a few minutes. Please don't close this window.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
