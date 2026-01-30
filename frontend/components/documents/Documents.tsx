@@ -575,8 +575,9 @@ export default function Documents() {
         formData,
         {
           headers: {
-            ...authHeaders,
-            'Content-Type': 'multipart/form-data'
+            'Authorization': authHeaders.Authorization,
+            'X-Tenant': authHeaders['X-Tenant']
+            // Let axios set Content-Type automatically with boundary
           }
         }
       )
