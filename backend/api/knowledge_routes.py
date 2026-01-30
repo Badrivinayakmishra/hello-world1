@@ -159,64 +159,22 @@ def analyze_gaps():
         mode = data.get('mode', 'v3')  # Default to v3 mode (enhanced)
         max_documents = min(data.get('max_documents', 100), 500)  # Cap at 500
 
-        db = get_db()
-        try:
-            service = KnowledgeService(db)
+        # Use Celery for background processing (gap analysis can take 5-15 minutes)
+        from tasks.gap_analysis_tasks import analyze_gaps_task
 
-            # Use v3.0 enhanced analysis by default
-            if mode == 'v3':
-                result = service.analyze_gaps_v3(
-                    tenant_id=g.tenant_id,
-                    project_id=project_id,
-                    force_reanalyze=force,
-                    include_pending=include_pending,
-                    max_documents=max_documents
-                )
-            elif mode == 'intelligent':
-                result = service.analyze_gaps_intelligent(
-                    tenant_id=g.tenant_id,
-                    project_id=project_id,
-                    force_reanalyze=force,
-                    include_pending=include_pending,
-                    max_documents=max_documents
-                )
-            elif mode == 'goalfirst':
-                result = service.analyze_gaps_goalfirst(
-                    tenant_id=g.tenant_id,
-                    project_id=project_id,
-                    force_reanalyze=force,
-                    include_pending=include_pending,
-                    max_documents=max_documents
-                )
-            elif mode == 'multistage':
-                result = service.analyze_gaps_multistage(
-                    tenant_id=g.tenant_id,
-                    project_id=project_id,
-                    force_reanalyze=force,
-                    include_pending=include_pending,
-                    max_documents=max_documents
-                )
-            else:
-                # Fallback to simple mode
-                result = service.analyze_gaps(
-                    tenant_id=g.tenant_id,
-                    project_id=project_id,
-                    force_reanalyze=force,
-                    include_pending=include_pending
-                )
+        # Start background task
+        task = analyze_gaps_task.delay(
+            tenant_id=g.tenant_id,
+            project_id=project_id,
+            mode=mode,
+            force=force
+        )
 
-            return jsonify({
-                "success": True,
-                "results": {
-                    "gaps": result.gaps,
-                    "total_documents_analyzed": result.total_documents_analyzed,
-                    "categories_found": result.categories_found,
-                    "mode": mode
-                }
-            })
-
-        finally:
-            db.close()
+        return jsonify({
+            "success": True,
+            "message": f"Gap analysis started in background (mode: {mode})",
+            "job_id": task.id  # Task ID for status polling
+        })
 
     except Exception as e:
         return jsonify({

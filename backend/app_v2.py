@@ -61,6 +61,7 @@ from api.document_routes import document_bp
 from api.knowledge_routes import knowledge_bp
 from api.video_routes import video_bp
 from api.chat_routes import chat_bp
+from api.jobs_routes import jobs_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(integration_bp)
@@ -68,6 +69,7 @@ app.register_blueprint(document_bp)
 app.register_blueprint(knowledge_bp)
 app.register_blueprint(video_bp)
 app.register_blueprint(chat_bp)
+app.register_blueprint(jobs_bp)
 
 print("✓ API blueprints registered")
 
