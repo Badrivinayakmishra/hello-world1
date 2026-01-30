@@ -752,6 +752,7 @@ class Video(Base):
     # Generation
     status = Column(Enum(VideoStatus), default=VideoStatus.QUEUED, index=True)
     progress_percent = Column(Integer, default=0)
+    current_step = Column(String(200))  # Current generation step
     error_message = Column(Text)
 
     # Source content
@@ -789,6 +790,7 @@ class Video(Base):
             "description": self.description,
             "status": self.status.value,
             "progress_percent": self.progress_percent,
+            "current_step": self.current_step,
             "error_message": self.error_message,
             "file_path": self.file_path,
             "file_size_bytes": self.file_size_bytes,

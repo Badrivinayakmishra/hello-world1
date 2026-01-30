@@ -273,6 +273,7 @@ def get_video_status(video_id: str):
                 "success": True,
                 "status": video.status.value,
                 "progress_percent": video.progress_percent,
+                "current_step": video.current_step,
                 "error_message": video.error_message,
                 "started_at": video.started_at.isoformat() if video.started_at else None,
                 "completed_at": video.completed_at.isoformat() if video.completed_at else None

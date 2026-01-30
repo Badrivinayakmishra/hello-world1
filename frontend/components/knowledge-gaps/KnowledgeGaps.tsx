@@ -274,14 +274,13 @@ export default function KnowledgeGaps() {
       )
 
       if (response.data.success) {
-        const status = response.data.status
         setVideoProgress({
-          status: status.status,
-          progress_percent: status.progress_percent || 0,
-          current_step: status.current_step || 'Processing...'
+          status: response.data.status,
+          progress_percent: response.data.progress_percent || 0,
+          current_step: response.data.current_step || 'Processing...'
         })
 
-        if (status.status === 'completed') {
+        if (response.data.status === 'completed') {
           // Video is ready!
           setTimeout(() => {
             setGeneratingVideo(false)
@@ -291,10 +290,10 @@ export default function KnowledgeGaps() {
             alert('Training video generated successfully! Redirecting to Training Guides...')
             window.location.href = '/training-guides'
           }, 1500)
-        } else if (status.status === 'failed') {
+        } else if (response.data.status === 'failed') {
           setGeneratingVideo(false)
           setVideoProgress(null)
-          alert('Video generation failed: ' + (status.error_message || 'Unknown error'))
+          alert('Video generation failed: ' + (response.data.error_message || 'Unknown error'))
         } else {
           // Still processing, poll again in 3 seconds
           setTimeout(() => pollVideoStatus(videoId), 3000)

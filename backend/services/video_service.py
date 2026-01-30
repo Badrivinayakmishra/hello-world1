@@ -430,6 +430,7 @@ class VideoService:
     ):
         """Update video progress"""
         video.progress_percent = percent
+        video.current_step = step
         db.commit()
 
         # Call progress callback if registered

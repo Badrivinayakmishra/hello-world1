@@ -802,14 +802,13 @@ export default function Documents() {
       )
 
       if (response.data.success) {
-        const status = response.data.status
         setVideoProgress({
-          status: status.status,
-          progress_percent: status.progress_percent || 0,
-          current_step: status.current_step || 'Processing...'
+          status: response.data.status,
+          progress_percent: response.data.progress_percent || 0,
+          current_step: response.data.current_step || 'Processing...'
         })
 
-        if (status.status === 'completed') {
+        if (response.data.status === 'completed') {
           // Video is ready!
           setTimeout(() => {
             setGeneratingVideo(false)
