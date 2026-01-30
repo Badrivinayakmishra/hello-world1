@@ -11,6 +11,10 @@ from services.auth_service import (
     AuthService, SignupData,
     get_token_from_header, require_auth, JWTUtils
 )
+from services.validators import (
+    validate_signup_data, validate_login_data,
+    EmailValidator, PasswordValidator
+)
 
 
 # Create blueprint
@@ -78,6 +82,23 @@ def signup():
                 "error": f"Missing required fields: {', '.join(missing)}"
             }), 400
 
+        # Validate signup data (email format, password strength, name)
+        is_valid, error_msg = validate_signup_data(
+            email=data['email'],
+            password=data['password'],
+            full_name=data['full_name']
+        )
+
+        if not is_valid:
+            return jsonify({
+                "success": False,
+                "error": error_msg,
+                "error_code": "VALIDATION_ERROR"
+            }), 400
+
+        # Normalize email
+        normalized_email = EmailValidator.normalize(data['email'])
+
         ip, user_agent = get_client_info()
 
         db = get_db()
@@ -85,10 +106,10 @@ def signup():
             auth_service = AuthService(db)
 
             signup_data = SignupData(
-                email=data['email'],
+                email=normalized_email,
                 password=data['password'],
-                full_name=data['full_name'],
-                organization_name=data.get('organization_name'),
+                full_name=data['full_name'].strip(),
+                organization_name=data.get('organization_name', '').strip() if data.get('organization_name') else None,
                 invite_code=data.get('invite_code')
             )
 
@@ -157,18 +178,23 @@ def login():
         email = data.get('email', '').strip()
         password = data.get('password', '')
 
-        if not email or not password:
+        # Validate login data
+        is_valid, error_msg = validate_login_data(email, password)
+        if not is_valid:
             return jsonify({
                 "success": False,
-                "error": "Email and password are required"
+                "error": error_msg
             }), 400
+
+        # Normalize email
+        normalized_email = EmailValidator.normalize(email)
 
         ip, user_agent = get_client_info()
 
         db = get_db()
         try:
             auth_service = AuthService(db)
-            result = auth_service.login(email, password, ip, user_agent)
+            result = auth_service.login(normalized_email, password, ip, user_agent)
 
             if not result.success:
                 status_code = 401
