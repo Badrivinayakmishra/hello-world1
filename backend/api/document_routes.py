@@ -207,6 +207,95 @@ def get_document(document_id: str):
 
 
 # ============================================================================
+# RECLASSIFY DOCUMENT
+# ============================================================================
+
+@document_bp.route('/<document_id>/reclassify', methods=['POST'])
+@require_auth
+def reclassify_document(document_id: str):
+    """
+    Manually reclassify a document to a different category.
+
+    Request body:
+    {
+        "classification": "work" | "personal" | "spam" | "unknown"
+    }
+
+    Response:
+    {
+        "success": true,
+        "document": { ... }
+    }
+    """
+    try:
+        db = get_db()
+        try:
+            # Get request data
+            data = request.get_json()
+            if not data or 'classification' not in data:
+                return jsonify({
+                    "success": False,
+                    "error": "Missing 'classification' in request body"
+                }), 400
+
+            new_classification = data['classification'].lower()
+
+            # Validate classification
+            valid_classifications = ['work', 'personal', 'spam', 'unknown']
+            if new_classification not in valid_classifications:
+                return jsonify({
+                    "success": False,
+                    "error": f"Invalid classification. Must be one of: {', '.join(valid_classifications)}"
+                }), 400
+
+            # Map string to enum
+            classification_map = {
+                'work': DocumentClassification.WORK,
+                'personal': DocumentClassification.PERSONAL,
+                'spam': DocumentClassification.SPAM,
+                'unknown': DocumentClassification.UNKNOWN
+            }
+
+            # Get document
+            document = db.query(Document).filter(
+                Document.id == document_id,
+                Document.tenant_id == g.tenant_id
+            ).first()
+
+            if not document:
+                return jsonify({
+                    "success": False,
+                    "error": "Document not found"
+                }), 404
+
+            # Update classification
+            document.classification = classification_map[new_classification]
+            document.classification_confidence = 1.0  # Manual classification is 100% confident
+            document.classification_reason = "Manually reclassified by user"
+            document.status = DocumentStatus.CONFIRMED
+            document.updated_at = utc_now()
+
+            db.commit()
+
+            print(f"[Document] Reclassified document {document_id} to {new_classification}")
+
+            return jsonify({
+                "success": True,
+                "document": document.to_dict()
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[Document] Error reclassifying document: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================================
 # MANUAL DOCUMENT UPLOAD
 # ============================================================================
 
