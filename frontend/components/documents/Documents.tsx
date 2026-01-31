@@ -247,14 +247,14 @@ export default function Documents() {
 
   const counts = getCategoryCounts()
 
-  const CategoryFilter = ({ name, count, icon, color, active, onClick }: any) => (
+  const CategoryFilter = ({ name, count, color, active, onClick }: any) => (
     <button
       onClick={onClick}
       style={{
         padding: '12px 20px',
-        borderRadius: '12px',
-        border: active ? `2px solid ${color}` : '2px solid transparent',
-        backgroundColor: active ? `${color}15` : '#FFFFFF',
+        borderRadius: '8px',
+        border: active ? `2px solid ${color}` : '2px solid #D4D4D8',
+        backgroundColor: active ? '#FFFFFF' : '#FFE2BF',
         color: '#081028',
         fontFamily: '"Work Sans", sans-serif',
         fontSize: '14px',
@@ -264,10 +264,9 @@ export default function Documents() {
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
-        boxShadow: active ? `0 2px 8px ${color}25` : '0 1px 3px rgba(0,0,0,0.1)'
+        boxShadow: active ? `0 2px 4px ${color}40` : 'none'
       }}
     >
-      <span style={{ fontSize: '18px' }}>{icon}</span>
       <span>{name}</span>
       <span style={{
         backgroundColor: color,
@@ -449,12 +448,12 @@ export default function Documents() {
   }
 
   return (
-    <div className="flex h-screen bg-[#F9FAFB] overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#FFE2BF' }}>
       <Sidebar activeItem={activeItem} onItemClick={setActiveItem} />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <div className="px-8 py-6 bg-white border-b border-gray-200">
+        <div className="px-8 py-6" style={{ backgroundColor: '#FFE2BF', borderBottom: '1px solid #D4D4D8' }}>
           <div className="flex items-center justify-between mb-4">
             <h1 style={{
               color: '#081028',
@@ -468,12 +467,50 @@ export default function Documents() {
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => router.push('/integrations')}
                 style={{
                   padding: '10px 20px',
-                  borderRadius: '10px',
+                  borderRadius: '4px',
+                  backgroundColor: '#FFE2BF',
+                  color: '#081028',
+                  border: '0.6px solid #7E89AC',
+                  cursor: 'pointer',
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                Share
+              </button>
+
+              <button
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '4px',
+                  backgroundColor: '#FFE2BF',
+                  color: '#081028',
+                  border: '0.6px solid #7E89AC',
+                  cursor: 'pointer',
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                Add Documents
+              </button>
+
+              <button
+                onClick={() => router.push('/knowledge-gaps')}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '4px',
                   backgroundColor: '#081028',
-                  color: '#FFFFFF',
+                  color: '#FFE2BF',
                   border: 'none',
                   cursor: 'pointer',
                   fontFamily: '"Work Sans", sans-serif',
@@ -484,8 +521,7 @@ export default function Documents() {
                   gap: '6px'
                 }}
               >
-                <span>⚡</span>
-                <span>Find Gaps</span>
+                Save & Find Gaps
               </button>
             </div>
           </div>
@@ -500,36 +536,25 @@ export default function Documents() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search documents..."
+              placeholder="Search for..."
               style={{
                 width: '100%',
-                padding: '12px 16px 12px 44px',
-                borderRadius: '12px',
-                border: '2px solid #E5E7EB',
-                backgroundColor: '#FFFFFF',
+                padding: '12px 16px',
+                borderRadius: '4px',
+                border: '0.6px solid #7E89AC',
+                backgroundColor: '#FFE2BF',
                 outline: 'none',
                 fontFamily: '"Work Sans", sans-serif',
-                fontSize: '14px',
-                transition: 'border-color 0.2s'
+                fontSize: '14px'
               }}
-              onFocus={(e) => e.currentTarget.style.borderColor = '#081028'}
-              onBlur={(e) => e.currentTarget.style.borderColor = '#E5E7EB'}
             />
-            <svg
-              style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)' }}
-              width="18"
-              height="18"
-              viewBox="0 0 18 18"
-              fill="none"
-            >
-              <circle cx="8" cy="8" r="6" stroke="#9CA3AF" strokeWidth="2"/>
-              <path d="M12.5 12.5L16 16" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
           </div>
         </div>
 
         {/* Category Filters */}
-        <div className="px-8 py-4 bg-white border-b border-gray-200" style={{
+        <div className="px-8 py-4" style={{
+          backgroundColor: '#FFE2BF',
+          borderBottom: '1px solid #D4D4D8',
           overflowX: 'auto',
           whiteSpace: 'nowrap'
         }}>
@@ -537,7 +562,6 @@ export default function Documents() {
             <CategoryFilter
               name="All"
               count={counts.all}
-              icon="📚"
               color="#081028"
               active={activeCategory === 'All'}
               onClick={() => setActiveCategory('All')}
@@ -545,7 +569,6 @@ export default function Documents() {
             <CategoryFilter
               name="Web Scraper"
               count={counts.webscraper}
-              icon="🌐"
               color="#FF6B35"
               active={activeCategory === 'Web Scraper'}
               onClick={() => setActiveCategory('Web Scraper')}
@@ -553,7 +576,6 @@ export default function Documents() {
             <CategoryFilter
               name="Documents"
               count={counts.documents}
-              icon="📄"
               color="#05C168"
               active={activeCategory === 'Documents'}
               onClick={() => setActiveCategory('Documents')}
@@ -561,7 +583,6 @@ export default function Documents() {
             <CategoryFilter
               name="Meetings"
               count={counts.meetings}
-              icon="📅"
               color="#CB3CFF"
               active={activeCategory === 'Meetings'}
               onClick={() => setActiveCategory('Meetings')}
@@ -569,7 +590,6 @@ export default function Documents() {
             <CategoryFilter
               name="Personal"
               count={counts.personal}
-              icon="👤"
               color="#FDB52A"
               active={activeCategory === 'Personal Items'}
               onClick={() => setActiveCategory('Personal Items')}
@@ -577,7 +597,6 @@ export default function Documents() {
             <CategoryFilter
               name="Other"
               count={counts.other}
-              icon="📦"
               color="#086CD9"
               active={activeCategory === 'Other Items'}
               onClick={() => setActiveCategory('Other Items')}
@@ -586,7 +605,7 @@ export default function Documents() {
         </div>
 
         {/* Documents Grid */}
-        <div className="flex-1 px-8 py-6 overflow-auto">
+        <div className="flex-1 px-8 py-6 overflow-auto" style={{ backgroundColor: '#FFE2BF' }}>
           {loading ? (
             <div style={{
               display: 'flex',
@@ -599,7 +618,7 @@ export default function Documents() {
               <div style={{
                 width: '48px',
                 height: '48px',
-                border: '4px solid #E5E7EB',
+                border: '4px solid #D4D4D8',
                 borderTop: '4px solid #081028',
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite'
@@ -614,7 +633,7 @@ export default function Documents() {
               <span style={{
                 fontFamily: '"Work Sans", sans-serif',
                 fontSize: '16px',
-                color: '#6B7280',
+                color: '#081028',
                 fontWeight: 500
               }}>
                 Loading documents...
@@ -628,8 +647,9 @@ export default function Documents() {
               justifyContent: 'center',
               height: '400px',
               gap: '16px',
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
+              backgroundColor: '#FFF3E4',
+              borderRadius: '12px',
+              border: '1px solid #D4D4D8',
               padding: '40px',
               textAlign: 'center'
             }}>
@@ -660,9 +680,9 @@ export default function Documents() {
                   style={{
                     marginTop: '16px',
                     padding: '12px 24px',
-                    borderRadius: '10px',
+                    borderRadius: '4px',
                     backgroundColor: '#081028',
-                    color: '#FFFFFF',
+                    color: '#FFE2BF',
                     border: 'none',
                     cursor: 'pointer',
                     fontFamily: '"Work Sans", sans-serif',
@@ -692,12 +712,13 @@ export default function Documents() {
             <div style={{
               marginTop: '24px',
               padding: '16px',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: '#FFF3E4',
               borderRadius: '12px',
+              border: '1px solid #D4D4D8',
               textAlign: 'center',
               fontFamily: 'Inter, sans-serif',
               fontSize: '14px',
-              color: '#6B7280'
+              color: '#081028'
             }}>
               Showing {filteredDocuments.length} of {documents.length} documents
               {activeCategory !== 'All' && ` in ${activeCategory}`}
