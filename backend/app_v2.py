@@ -34,7 +34,7 @@ CORS(app,
          r"/api/*": {
              "origins": ["http://localhost:3000", "http://localhost:3006", "*"],
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"]
+             "allow_headers": ["Content-Type", "Authorization", "X-Tenant"]
          }
      })
 
