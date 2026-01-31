@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, redirect, g
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from database.models import SessionLocal, Connector, Document, DocumentType
+from database.models import SessionLocal, Connector, Document, DocumentClassification, DocumentStatus
 from connectors.github_connector import GitHubConnector
 from services.code_analysis_service import CodeAnalysisService
 from services.auth_service import require_auth
@@ -375,18 +375,17 @@ def sync_repository():
                 tenant_id=g.tenant_id,
                 title=f"{repository} - Technical Documentation",
                 content=analysis['documentation'],
-                document_type=DocumentType.OTHER,
-                source='github',
+                source_type='github',
                 sender_email=connector.credentials.get('github_user'),
                 external_id=f"github_{repository.replace('/', '_')}_docs",
-                metadata={
+                doc_metadata={
                     'repository': repository,
                     'analysis_type': 'comprehensive_documentation',
                     'stats': analysis['stats']
                 },
-                classification='work',
+                status=DocumentStatus.CLASSIFIED,
+                classification=DocumentClassification.WORK,
                 classification_confidence=1.0,
-                classified_at=datetime.now(timezone.utc),
                 created_at=datetime.now(timezone.utc)
             )
             db.add(doc_main)
@@ -421,18 +420,17 @@ def sync_repository():
                 tenant_id=g.tenant_id,
                 title=f"{repository} - Overview",
                 content=overview_content,
-                document_type=DocumentType.OTHER,
-                source='github',
+                source_type='github',
                 sender_email=connector.credentials.get('github_user'),
                 external_id=f"github_{repository.replace('/', '_')}_overview",
-                metadata={
+                doc_metadata={
                     'repository': repository,
                     'analysis_type': 'overview',
                     'overview': analysis['repository_overview']
                 },
-                classification='work',
+                status=DocumentStatus.CLASSIFIED,
+                classification=DocumentClassification.WORK,
                 classification_confidence=1.0,
-                classified_at=datetime.now(timezone.utc),
                 created_at=datetime.now(timezone.utc)
             )
             db.add(doc_overview)
@@ -471,19 +469,18 @@ def sync_repository():
                     tenant_id=g.tenant_id,
                     title=f"{repository} - {file_analysis['file_path']}",
                     content=file_content,
-                    document_type=DocumentType.OTHER,
-                    source='github',
+                    source_type='github',
                     sender_email=connector.credentials.get('github_user'),
                     external_id=f"github_{repository.replace('/', '_')}_{file_analysis['file_path'].replace('/', '_')}",
-                    metadata={
+                    doc_metadata={
                         'repository': repository,
                         'file_path': file_analysis['file_path'],
                         'analysis_type': 'file_analysis',
                         'language': file_analysis['language']
                     },
-                    classification='work',
+                    status=DocumentStatus.CLASSIFIED,
+                    classification=DocumentClassification.WORK,
                     classification_confidence=1.0,
-                    classified_at=datetime.now(timezone.utc),
                     created_at=datetime.now(timezone.utc)
                 )
                 db.add(doc_file)
