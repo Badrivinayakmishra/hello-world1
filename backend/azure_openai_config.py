@@ -6,15 +6,15 @@ Centralized configuration for Azure OpenAI API access.
 import os
 from openai import AzureOpenAI
 
-# Azure OpenAI Configuration
-AZURE_OPENAI_ENDPOINT = "https://rishi-mihfdoty-eastus2.cognitiveservices.azure.com"
+# Azure OpenAI Configuration - READ FROM ENVIRONMENT VARIABLES
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://secondbrain-resource.openai.azure.com/")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_API_VERSION = os.getenv("AZURE_API_VERSION", "2024-05-01-preview")
 
 # Deployment names (Azure uses deployment names instead of model names)
-AZURE_CHAT_DEPLOYMENT = "gpt-5-chat"  # For chat completions
-AZURE_EMBEDDING_DEPLOYMENT = "text-embedding-3-large"  # For embeddings
-AZURE_EMBEDDING_API_VERSION = "2023-05-15"  # Embedding API version
+AZURE_CHAT_DEPLOYMENT = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-5-chat")
+AZURE_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
+AZURE_EMBEDDING_API_VERSION = os.getenv("AZURE_EMBEDDING_API_VERSION", "2024-05-01-preview")
 
 def get_azure_client():
     """
