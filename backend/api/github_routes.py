@@ -15,7 +15,7 @@ from services.code_analysis_service import CodeAnalysisService
 from services.auth_service import require_auth
 from services.extraction_service import ExtractionService
 from services.embedding_service import EmbeddingService
-from tasks.embedding_tasks import embed_documents_task
+from tasks.embedding_tasks import generate_embeddings_task
 
 
 github_bp = Blueprint('github', __name__, url_prefix='/api/integrations/github')
@@ -499,7 +499,7 @@ def sync_repository():
             doc_ids = [doc.id for doc in documents_created]
             try:
                 # Try async task
-                embed_documents_task.delay(doc_ids, g.tenant_id)
+                generate_embeddings_task.delay(g.tenant_id, doc_ids)
                 print(f"[GitHub] Queued {len(doc_ids)} documents for embedding")
             except:
                 # Fallback to sync embedding
