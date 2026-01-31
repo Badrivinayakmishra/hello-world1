@@ -53,10 +53,12 @@ export default function Documents() {
   const [loading, setLoading] = useState(true)
   const [viewingDocument, setViewingDocument] = useState<FullDocument | null>(null)
   const [loadingDocument, setLoadingDocument] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   const authHeaders = useAuthHeaders()
   const { token } = useAuth()
   const router = useRouter()
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (token) {
@@ -201,6 +203,45 @@ export default function Documents() {
     }
   }
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i])
+      }
+
+      const response = await axios.post(`${API_BASE}/documents/upload`, formData, {
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+
+      if (response.data.success) {
+        alert(`Successfully uploaded ${files.length} file(s)`)
+        loadDocuments() // Reload documents
+      } else {
+        alert('Upload failed: ' + (response.data.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      console.error('Error uploading files:', error)
+      alert('Upload failed: ' + (error.response?.data?.error || error.message || 'Unknown error'))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleAddDocuments = () => {
+    fileInputRef.current?.click()
+  }
+
   const getCategoryCounts = () => {
     return {
       all: documents.length,
@@ -232,7 +273,7 @@ export default function Documents() {
         backgroundColor: bgColor,
         borderRadius: '16px',
         padding: isLarge ? '32px' : '24px',
-        border: active ? '2px solid #081028' : '2px solid transparent',
+        border: active ? '2px solid #374151' : '2px solid rgba(55, 65, 81, 0.2)',
         cursor: 'pointer',
         transition: 'all 0.2s',
         textAlign: 'left',
@@ -242,6 +283,16 @@ export default function Documents() {
         flexDirection: 'column',
         justifyContent: 'space-between',
         boxShadow: active ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.borderColor = 'rgba(55, 65, 81, 0.4)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.borderColor = 'rgba(55, 65, 81, 0.2)'
+        }
       }}
     >
       <div style={{
@@ -283,7 +334,7 @@ export default function Documents() {
         width: '100%',
         padding: '16px 20px',
         backgroundColor: '#FFFFFF',
-        border: '1px solid #E5E7EB',
+        border: '1.5px solid #D1D5DB',
         borderRadius: '8px',
         cursor: 'pointer',
         transition: 'all 0.15s',
@@ -292,11 +343,11 @@ export default function Documents() {
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = '#F9FAFB'
-        e.currentTarget.style.borderColor = '#D1D5DB'
+        e.currentTarget.style.borderColor = '#9CA3AF'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = '#FFFFFF'
-        e.currentTarget.style.borderColor = '#E5E7EB'
+        e.currentTarget.style.borderColor = '#D1D5DB'
       }}
     >
       <div style={{
@@ -356,46 +407,72 @@ export default function Documents() {
                   borderRadius: '8px',
                   backgroundColor: '#FFFFFF',
                   color: '#374151',
-                  border: '1px solid #E5E7EB',
+                  border: '1.5px solid #9CA3AF',
                   cursor: 'pointer',
                   fontFamily: notionFont,
                   fontSize: '14px',
                   fontWeight: 500,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#6B7280'
+                  e.currentTarget.style.backgroundColor = '#F9FAFB'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#9CA3AF'
+                  e.currentTarget.style.backgroundColor = '#FFFFFF'
                 }}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M13 8.5C13.8284 8.5 14.5 7.82843 14.5 7C14.5 6.17157 13.8284 5.5 13 5.5C12.1716 5.5 11.5 6.17157 11.5 7C11.5 7.82843 12.1716 8.5 13 8.5Z" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M3 8.5C3.82843 8.5 4.5 7.82843 4.5 7C4.5 6.17157 3.82843 5.5 3 5.5C2.17157 5.5 1.5 6.17157 1.5 7C1.5 7.82843 2.17157 8.5 3 8.5Z" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M11.5 7H4.5" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M13.5 11L11 14M11 14L8.5 11M11 14V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  <path d="M5 3L7.5 0M7.5 0L10 3M7.5 0V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="3"/>
+                  <circle cx="6" cy="12" r="3"/>
+                  <circle cx="18" cy="19" r="3"/>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
                 </svg>
                 Share
               </button>
 
               <button
+                onClick={handleAddDocuments}
+                disabled={uploading}
                 style={{
                   padding: '10px 20px',
                   borderRadius: '8px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1px solid #E5E7EB',
-                  cursor: 'pointer',
+                  backgroundColor: uploading ? '#F3F4F6' : '#FFFFFF',
+                  color: uploading ? '#9CA3AF' : '#374151',
+                  border: '1.5px solid #9CA3AF',
+                  cursor: uploading ? 'not-allowed' : 'pointer',
                   fontFamily: notionFont,
                   fontSize: '14px',
                   fontWeight: 500,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!uploading) {
+                    e.currentTarget.style.borderColor = '#6B7280'
+                    e.currentTarget.style.backgroundColor = '#F9FAFB'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!uploading) {
+                    e.currentTarget.style.borderColor = '#9CA3AF'
+                    e.currentTarget.style.backgroundColor = '#FFFFFF'
+                  }
                 }}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 3.5V12.5M12.5 8H3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
-                Add Documents
+                {uploading ? 'Uploading...' : 'Add Documents'}
               </button>
 
               <button
@@ -405,11 +482,20 @@ export default function Documents() {
                   borderRadius: '8px',
                   backgroundColor: '#A67C52',
                   color: '#FFFFFF',
-                  border: 'none',
+                  border: '1.5px solid #A67C52',
                   cursor: 'pointer',
                   fontFamily: notionFont,
                   fontSize: '14px',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#8B6341'
+                  e.currentTarget.style.borderColor = '#8B6341'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#A67C52'
+                  e.currentTarget.style.borderColor = '#A67C52'
                 }}
               >
                 Save & Find Gaps
@@ -428,13 +514,16 @@ export default function Documents() {
               maxWidth: '600px',
               padding: '12px 16px',
               borderRadius: '8px',
-              border: '1px solid #E5E7EB',
+              border: '1.5px solid #D1D5DB',
               backgroundColor: '#FFFFFF',
               outline: 'none',
               fontFamily: notionFont,
               fontSize: '15px',
-              color: '#111827'
+              color: '#111827',
+              transition: 'border-color 0.2s'
             }}
+            onFocus={(e) => e.currentTarget.style.borderColor = '#9CA3AF'}
+            onBlur={(e) => e.currentTarget.style.borderColor = '#D1D5DB'}
           />
         </div>
 
@@ -709,6 +798,16 @@ export default function Documents() {
           </div>
         </div>
       )}
+
+      {/* Hidden File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.xls"
+        onChange={handleFileUpload}
+        style={{ display: 'none' }}
+      />
     </div>
   )
 }

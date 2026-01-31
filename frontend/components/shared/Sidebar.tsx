@@ -60,9 +60,9 @@ export default function Sidebar({
   const showChatHistory = activeItem === 'ChatBot' && (conversations.length > 0 || onNewChat)
 
   return (
-    <div 
-      className="h-full bg-primary flex flex-col py-6"
-      style={{ width: '280px' }}
+    <div
+      className="h-full flex flex-col py-6"
+      style={{ width: '280px', backgroundColor: '#FFFFFF' }}
     >
       <div className="px-6">
         {/* Logo */}
