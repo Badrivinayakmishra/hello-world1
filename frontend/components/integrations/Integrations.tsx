@@ -2535,7 +2535,7 @@ export default function Integrations() {
               })
               setShowSyncProgress(true)
               // Start polling
-              const interval = setInterval(() => pollSyncStatus(savedState.integration), 1000)
+              const interval = setInterval(() => pollSyncStatus(savedState.integration), 2000)
               setSyncPollingInterval(interval)
             } else if (status.status === 'completed') {
               // Sync completed while user was away - keep the completed state
@@ -2579,6 +2579,13 @@ export default function Integrations() {
           // Error checking status - clear saved state
           saveSyncState(null)
         })
+      }
+    }
+
+    // CRITICAL: Cleanup function to stop polling when component unmounts
+    return () => {
+      if (syncPollingInterval) {
+        clearInterval(syncPollingInterval)
       }
     }
   }, [])
@@ -2879,7 +2886,7 @@ export default function Integrations() {
 
       if (response.data.success) {
         // Start polling for status
-        const interval = setInterval(() => pollSyncStatus(integrationId), 1000)
+        const interval = setInterval(() => pollSyncStatus(integrationId), 2000)
         setSyncPollingInterval(interval)
       } else {
         saveSyncState(null) // Clear saved state on error
