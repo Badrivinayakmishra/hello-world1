@@ -54,6 +54,7 @@ export default function Documents() {
   const [viewingDocument, setViewingDocument] = useState<FullDocument | null>(null)
   const [loadingDocument, setLoadingDocument] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const authHeaders = useAuthHeaders()
   const { token } = useAuth()
@@ -69,6 +70,17 @@ export default function Documents() {
   useEffect(() => {
     filterDocuments()
   }, [documents, activeCategory, searchQuery])
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (openMenuId) {
+        setOpenMenuId(null)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [openMenuId])
 
   const loadDocuments = async () => {
     try {
@@ -242,6 +254,51 @@ export default function Documents() {
     fileInputRef.current?.click()
   }
 
+  const handleMoveDocument = async (documentId: string, newClassification: string) => {
+    try {
+      const response = await axios.post(
+        `${API_BASE}/documents/${documentId}/reclassify`,
+        { classification: newClassification },
+        { headers: authHeaders }
+      )
+
+      if (response.data.success) {
+        // Reload documents to reflect the change
+        loadDocuments()
+        setOpenMenuId(null)
+      } else {
+        alert('Failed to move document: ' + (response.data.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      console.error('Error moving document:', error)
+      alert('Failed to move document: ' + (error.response?.data?.error || error.message || 'Unknown error'))
+    }
+  }
+
+  const handleDeleteDocument = async (documentId: string, documentName: string) => {
+    if (!confirm(`Are you sure you want to delete "${documentName}"?`)) {
+      return
+    }
+
+    try {
+      const response = await axios.delete(
+        `${API_BASE}/documents/${documentId}`,
+        { headers: authHeaders }
+      )
+
+      if (response.data.success) {
+        // Reload documents to reflect the change
+        loadDocuments()
+        setOpenMenuId(null)
+      } else {
+        alert('Failed to delete document: ' + (response.data.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      console.error('Error deleting document:', error)
+      alert('Failed to delete document: ' + (error.response?.data?.error || error.message || 'Unknown error'))
+    }
+  }
+
   const getCategoryCounts = () => {
     return {
       all: documents.length,
@@ -328,55 +385,256 @@ export default function Documents() {
     </button>
   )
 
-  const DocumentListItem = ({ doc }: { doc: Document }) => (
-    <button
-      onClick={() => viewDocument(doc.id)}
-      style={{
-        width: '100%',
-        padding: '16px 20px',
-        backgroundColor: '#FFFFFF',
-        border: '1.5px solid #D1D5DB',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        transition: 'all 0.15s',
-        textAlign: 'left',
-        marginBottom: '8px'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = '#F9FAFB'
-        e.currentTarget.style.borderColor = '#9CA3AF'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = '#FFFFFF'
-        e.currentTarget.style.borderColor = '#D1D5DB'
-      }}
-    >
-      <div style={{
-        fontFamily: notionFont,
-        fontSize: '15px',
-        fontWeight: 500,
-        color: '#111827',
-        marginBottom: '4px',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis'
-      }}>
-        {doc.name}
+  const DocumentListItem = ({ doc }: { doc: Document }) => {
+    const isMenuOpen = openMenuId === doc.id
+
+    return (
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          padding: '16px 20px',
+          backgroundColor: '#FFFFFF',
+          border: '1.5px solid #D1D5DB',
+          borderRadius: '8px',
+          marginBottom: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px'
+        }}
+      >
+        <button
+          onClick={() => viewDocument(doc.id)}
+          style={{
+            flex: 1,
+            textAlign: 'left',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0
+          }}
+        >
+          <div style={{
+            fontFamily: notionFont,
+            fontSize: '15px',
+            fontWeight: 500,
+            color: '#111827',
+            marginBottom: '4px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}>
+            {doc.name}
+          </div>
+          <div style={{
+            fontFamily: notionFont,
+            fontSize: '13px',
+            color: '#6B7280',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <span>{doc.type}</span>
+            <span>•</span>
+            <span>{doc.created}</span>
+            <span>•</span>
+            <span>{doc.category}</span>
+          </div>
+        </button>
+
+        {/* Three-dot menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpenMenuId(isMenuOpen ? null : doc.id)
+            }}
+            style={{
+              padding: '8px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="2" fill="#6B7280"/>
+              <circle cx="12" cy="5" r="2" fill="#6B7280"/>
+              <circle cx="12" cy="19" r="2" fill="#6B7280"/>
+            </svg>
+          </button>
+
+          {/* Dropdown menu */}
+          {isMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: '100%',
+                marginTop: '4px',
+                backgroundColor: '#FFFFFF',
+                border: '1.5px solid #D1D5DB',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                minWidth: '200px',
+                zIndex: 1000,
+                overflow: 'hidden'
+              }}
+            >
+              {/* Move to submenu */}
+              <div style={{
+                padding: '8px 0',
+                borderBottom: '1px solid #E5E7EB'
+              }}>
+                <div style={{
+                  padding: '8px 16px',
+                  fontFamily: notionFont,
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#6B7280',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  Move to
+                </div>
+                {['Documents', 'Personal Items', 'Code', 'Other Items'].map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => {
+                      const classificationMap: any = {
+                        'Documents': 'work',
+                        'Personal Items': 'personal',
+                        'Code': 'work',
+                        'Other Items': 'unknown'
+                      }
+                      handleMoveDocument(doc.id, classificationMap[category])
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 16px',
+                      paddingLeft: '32px',
+                      textAlign: 'left',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: notionFont,
+                      fontSize: '14px',
+                      color: '#374151',
+                      transition: 'background-color 0.15s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+
+              {/* Other actions */}
+              <div style={{ padding: '4px 0' }}>
+                <button
+                  onClick={() => viewDocument(doc.id)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 16px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: notionFont,
+                    fontSize: '14px',
+                    color: '#374151',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'background-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  View Details
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (doc.url) {
+                      window.open(doc.url, '_blank')
+                    }
+                    setOpenMenuId(null)
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 16px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    cursor: doc.url ? 'pointer' : 'not-allowed',
+                    fontFamily: notionFont,
+                    fontSize: '14px',
+                    color: doc.url ? '#374151' : '#9CA3AF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'background-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (doc.url) e.currentTarget.style.backgroundColor = '#F9FAFB'
+                  }}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  disabled={!doc.url}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                  Open Source
+                </button>
+
+                <button
+                  onClick={() => handleDeleteDocument(doc.id, doc.name)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 16px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: notionFont,
+                    fontSize: '14px',
+                    color: '#DC2626',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'background-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FEF2F2'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                  Delete
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <div style={{
-        fontFamily: notionFont,
-        fontSize: '13px',
-        color: '#6B7280',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px'
-      }}>
-        <span>{doc.type}</span>
-        <span>•</span>
-        <span>{doc.lastModified}</span>
-      </div>
-    </button>
-  )
+    )
+  }
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#FFE2BF' }}>
