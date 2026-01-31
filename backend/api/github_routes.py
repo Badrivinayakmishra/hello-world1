@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, redirect, g
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from database.models import SessionLocal, Connector, Document
+from database.models import SessionLocal, Connector, Document, DocumentClassification, DocumentStatus
 from connectors.github_connector import GitHubConnector
 from services.code_analysis_service import CodeAnalysisService
 from services.auth_service import require_auth
@@ -383,7 +383,8 @@ def sync_repository():
                     'analysis_type': 'comprehensive_documentation',
                     'stats': analysis['stats']
                 },
-                classification='work',
+                status=DocumentStatus.CLASSIFIED,
+                classification=DocumentClassification.WORK,
                 classification_confidence=1.0,
                 created_at=datetime.now(timezone.utc)
             )
@@ -427,7 +428,8 @@ def sync_repository():
                     'analysis_type': 'overview',
                     'overview': analysis['repository_overview']
                 },
-                classification='work',
+                status=DocumentStatus.CLASSIFIED,
+                classification=DocumentClassification.WORK,
                 classification_confidence=1.0,
                 created_at=datetime.now(timezone.utc)
             )
@@ -476,7 +478,8 @@ def sync_repository():
                         'analysis_type': 'file_analysis',
                         'language': file_analysis['language']
                     },
-                    classification='work',
+                    status=DocumentStatus.CLASSIFIED,
+                    classification=DocumentClassification.WORK,
                     classification_confidence=1.0,
                     created_at=datetime.now(timezone.utc)
                 )
