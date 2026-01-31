@@ -2124,21 +2124,25 @@ def sync_connector(connector_type: str):
             connector.status = ConnectorStatus.SYNCING
             db.commit()
 
-            # Use Celery for background processing
-            from tasks.sync_tasks import sync_connector_task
+            # FIXED: Use threading instead of Celery (Celery not running on Render)
+            import threading
+            def run_sync():
+                _run_connector_sync(
+                    connector_id=connector.id,
+                    connector_type=connector_type,
+                    since=since,
+                    tenant_id=g.tenant_id,
+                    user_id=g.user_id,
+                    full_sync=full_sync
+                )
 
-            # Start background task
-            task = sync_connector_task.delay(
-                connector_id=connector.id,
-                tenant_id=g.tenant_id,
-                force=full_sync
-            )
+            thread = threading.Thread(target=run_sync)
+            thread.start()
 
             return jsonify({
                 "success": True,
                 "message": f"{connector_type.title()} sync started in background",
-                "connector_id": connector.id,
-                "job_id": task.id  # Task ID for status polling
+                "connector_id": connector.id
             })
 
         finally:
