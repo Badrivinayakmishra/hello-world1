@@ -2523,93 +2523,11 @@ export default function Integrations() {
     return localStorage.getItem('authToken')
   }
 
-  // Check for existing sync state on mount (resume sync progress if user closed tab)
+  // DISABLED: Auto-resume causes infinite polling loops
+  // Users must manually start syncs - no auto-resume on page load
   useEffect(() => {
-    const savedState = loadSyncState()
-    if (savedState) {
-      // If saved state already shows completed, just restore it without polling
-      if (savedState.status === 'completed' || savedState.status === 'error') {
-        setSyncProgress({
-          integration: savedState.integration,
-          status: savedState.status as any,
-          progress: savedState.progress || 100,
-          documentsFound: savedState.documentsFound || 0,
-          documentsParsed: savedState.documentsParsed || 0,
-          documentsEmbedded: savedState.documentsEmbedded || 0
-        })
-        // Don't show modal automatically for old completed syncs
-        return
-      }
-
-      // There was an active sync - check its status
-      const token = getAuthToken()
-      if (token) {
-        // Poll for current status
-        axios.get(`${API_BASE}/integrations/${savedState.integration}/sync/status`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }).then(response => {
-          if (response.data.success) {
-            const status = response.data.status
-            if (status.status === 'syncing' || status.status === 'parsing' || status.status === 'embedding' || status.status === 'starting') {
-              // Sync is still in progress - show the modal and start polling
-              setSyncProgress({
-                integration: savedState.integration,
-                status: status.status,
-                progress: status.progress || 0,
-                documentsFound: status.documents_found || 0,
-                documentsParsed: status.documents_parsed || 0,
-                documentsEmbedded: status.documents_embedded || 0,
-                currentFile: status.current_file,
-                startTime: savedState.startTime
-              })
-              setShowSyncProgress(true)
-              // Start polling
-              const interval = setInterval(() => pollSyncStatus(savedState.integration), 2000)
-              setSyncPollingInterval(interval)
-            } else if (status.status === 'completed') {
-              // Sync completed while user was away - keep the completed state
-              const integrationName = savedState.integration.charAt(0).toUpperCase() + savedState.integration.slice(1)
-
-              // Mark integration as connected
-              setIntegrationsState(prev =>
-                prev.map(int =>
-                  int.id === savedState.integration ? { ...int, connected: true } : int
-                )
-              )
-
-              // Show and save completed state
-              setSyncProgress({
-                integration: savedState.integration,
-                status: 'completed',
-                progress: 100,
-                documentsFound: status.documents_found || 0,
-                documentsParsed: status.documents_parsed || 0,
-                documentsEmbedded: status.documents_embedded || 0
-              })
-              setShowSyncProgress(true)
-              setSyncStatus(`${integrationName} sync completed while you were away!`)
-
-              // Save completed state so it persists
-              saveSyncState({
-                integration: savedState.integration,
-                status: 'completed',
-                progress: 100,
-                documentsFound: status.documents_found || 0,
-                documentsParsed: status.documents_parsed || 0,
-                documentsEmbedded: status.documents_embedded || 0,
-                completedAt: Date.now()
-              })
-            } else {
-              // Sync errored or unknown state - clear saved state
-              saveSyncState(null)
-            }
-          }
-        }).catch(() => {
-          // Error checking status - clear saved state
-          saveSyncState(null)
-        })
-      }
-    }
+    // Clear any saved sync state to prevent auto-resume
+    saveSyncState(null)
 
     // CRITICAL: Cleanup function to stop polling when component unmounts
     return () => {
@@ -2866,17 +2784,16 @@ export default function Integrations() {
             )
           }
 
-          // Keep the completed state in localStorage so it persists
-          // Only clear when user explicitly closes or starts new sync
-          saveSyncState({
-            integration: integrationId,
-            status: status.status,
-            progress: 100,
-            documentsFound: status.documents_found || 0,
-            documentsParsed: status.documents_parsed || 0,
-            documentsEmbedded: status.documents_embedded || 0,
-            completedAt: Date.now()
-          })
+          // DISABLED: Don't save state - prevents auto-resume on page load
+          // saveSyncState({
+          //   integration: integrationId,
+          //   status: status.status,
+          //   progress: 100,
+          //   documentsFound: status.documents_found || 0,
+          //   documentsParsed: status.documents_parsed || 0,
+          //   documentsEmbedded: status.documents_embedded || 0,
+          //   completedAt: Date.now()
+          // })
         }
       }
     } catch (error) {
@@ -2891,8 +2808,8 @@ export default function Integrations() {
 
     const startTime = Date.now()
 
-    // Save sync state to localStorage so we can resume if user closes tab
-    saveSyncState({ integration: integrationId, startTime })
+    // DISABLED: Don't save sync state - prevents auto-resume issues
+    // saveSyncState({ integration: integrationId, startTime })
 
     // Initialize progress modal
     setSyncProgress({
