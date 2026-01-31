@@ -529,31 +529,31 @@ export default function Documents() {
 
         {/* Category Cards Grid */}
         <div className="px-8 pb-6" style={{ backgroundColor: '#FFE2BF' }}>
+          {/* First Row - All Items + 4 categories */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '16px'
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: '16px',
+            marginBottom: '16px'
           }}>
-            {/* All Items - Large Card */}
-            <div style={{ gridColumn: '1 / 2', gridRow: '1 / 3' }}>
-              <CategoryCard
-                title="All Items"
-                count={counts.all}
-                icon={
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                    <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                  </svg>
-                }
-                bgColor="#A67C52"
-                textColor="#FFFFFF"
-                isLarge={true}
-                active={activeCategory === 'All Items'}
-                onClick={() => setActiveCategory('All Items')}
-              />
-            </div>
+            {/* All Items */}
+            <CategoryCard
+              title="All Items"
+              count={counts.all}
+              icon={
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
+                  <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
+                  <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
+                  <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
+                </svg>
+              }
+              bgColor="#A67C52"
+              textColor="#FFFFFF"
+              isLarge={false}
+              active={activeCategory === 'All Items'}
+              onClick={() => setActiveCategory('All Items')}
+            />
 
             {/* Documents */}
             <CategoryCard
@@ -622,6 +622,48 @@ export default function Documents() {
               isLarge={false}
               active={activeCategory === 'Other Items'}
               onClick={() => setActiveCategory('Other Items')}
+            />
+          </div>
+
+          {/* Second Row - Web Scraper and Meetings */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: '16px'
+          }}>
+            {/* Web Scraper */}
+            <CategoryCard
+              title="Web Scraper"
+              count={counts.webscraper}
+              icon={
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+              }
+              bgColor="#FEF3C7"
+              textColor="#92400E"
+              isLarge={false}
+              active={activeCategory === 'Web Scraper'}
+              onClick={() => setActiveCategory('Web Scraper')}
+            />
+
+            {/* Meetings */}
+            <CategoryCard
+              title="Meetings"
+              count={counts.meetings}
+              icon={
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              }
+              bgColor="#E0E7FF"
+              textColor="#3730A3"
+              isLarge={false}
+              active={activeCategory === 'Meetings'}
+              onClick={() => setActiveCategory('Meetings')}
             />
           </div>
         </div>
