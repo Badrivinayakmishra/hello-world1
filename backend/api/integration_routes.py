@@ -1899,26 +1899,27 @@ def webscraper_enhanced_configure():
             log_info("WebScraperEnhanced", "Configured successfully",
                     start_url=start_url, render_js=settings["render_js"])
 
-            # Auto-sync on first connection
-            if is_first_connection:
-                import threading
-                connector_id = connector.id
-                tenant_id = g.tenant_id
-                user_id = g.user_id
-
-                def run_initial_sync():
-                    _run_connector_sync_enhanced(
-                        connector_id=connector_id,
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        full_sync=True
-                    )
-
-                thread = threading.Thread(target=run_initial_sync)
-                thread.daemon = True
-                thread.start()
-
-                log_info("WebScraperEnhanced", "Started auto-sync", url=start_url)
+            # DISABLED: Auto-sync now happens through regular sync endpoint
+            # Enhanced connector removed - using simple connector instead
+            # if is_first_connection:
+            #     import threading
+            #     connector_id = connector.id
+            #     tenant_id = g.tenant_id
+            #     user_id = g.user_id
+            #
+            #     def run_initial_sync():
+            #         _run_connector_sync_enhanced(
+            #             connector_id=connector_id,
+            #             tenant_id=tenant_id,
+            #             user_id=user_id,
+            #             full_sync=True
+            #         )
+            #
+            #     thread = threading.Thread(target=run_initial_sync)
+            #     thread.daemon = True
+            #     thread.start()
+            #
+            #     log_info("WebScraperEnhanced", "Started auto-sync", url=start_url)
 
             return jsonify({
                 "success": True,
@@ -2500,6 +2501,52 @@ def _run_connector_sync(
 
     finally:
         db.close()
+
+
+@integration_bp.route('/sync/cancel-all', methods=['POST'])
+@require_auth
+def cancel_all_syncs():
+    """
+    EMERGENCY: Cancel ALL ongoing syncs for current tenant.
+
+    Response:
+    {
+        "success": true,
+        "message": "All syncs cancelled",
+        "cancelled": ["webscraper", "slack"]
+    }
+    """
+    try:
+        tenant_id = g.tenant_id
+        cancelled = []
+
+        # Find and cancel all syncs for this tenant
+        keys_to_cancel = [key for key in sync_progress.keys() if key.startswith(f"{tenant_id}:")]
+
+        for key in keys_to_cancel:
+            connector_type = key.split(":", 1)[1]
+            sync_progress[key] = {
+                "status": "cancelled",
+                "progress": 0,
+                "documents_found": 0,
+                "documents_parsed": 0,
+                "documents_embedded": 0,
+                "current_file": None,
+                "error": "Sync cancelled by user (emergency stop)"
+            }
+            cancelled.append(connector_type)
+
+        return jsonify({
+            "success": True,
+            "message": f"Cancelled {len(cancelled)} active syncs",
+            "cancelled": cancelled
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @integration_bp.route('/<connector_type>/sync/cancel', methods=['POST'])
