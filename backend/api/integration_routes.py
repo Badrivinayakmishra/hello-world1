@@ -1998,18 +1998,18 @@ def _run_connector_sync_enhanced(connector_id: str, tenant_id: str, user_id: str
             # Create database document
             db_doc = Document(
                 tenant_id=tenant_id,
-                user_id=user_id,
+                connector_id=connector.id,  # FIXED: use connector_id
+                external_id=doc.doc_id,
+                source_type="webscraper_enhanced",  # FIXED: use source_type
                 title=doc.title,
                 content=doc.content,
-                source="webscraper_enhanced",
-                sender_email=None,
-                external_id=doc.doc_id,
-                doc_metadata=doc.metadata,
+                doc_metadata=doc.metadata,  # CORRECT: this is the right field name
+                sender=None,
+                source_created_at=utc_now(),
+                status=DocumentStatus.CLASSIFIED,  # FIXED: use status, not document_status
                 classification=DocumentClassification.WORK,
                 classification_confidence=1.0,
-                classified_at=utc_now(),
-                document_status=DocumentStatus.ACTIVE,
-                created_at=utc_now()
+                classification_reason="Auto-classified: Enhanced web scraper content"
             )
             db.add(db_doc)
             db.commit()
@@ -2019,9 +2019,19 @@ def _run_connector_sync_enhanced(connector_id: str, tenant_id: str, user_id: str
             extraction_service.extract_and_update(db_doc, db)
             doc_ids.append(db_doc.id)
 
-        # Embed documents
+        # Embed documents - FIXED: use correct function signature
         if doc_ids:
-            embedding_service.embed_documents(doc_ids, tenant_id, db)
+            docs_to_embed = db.query(Document).filter(
+                Document.id.in_(doc_ids),
+                Document.tenant_id == tenant_id
+            ).all()
+
+            embedding_service.embed_documents(
+                documents=docs_to_embed,
+                tenant_id=tenant_id,
+                db=db,
+                force_reembed=False
+            )
 
         # Update connector
         connector.status = ConnectorStatus.CONNECTED
