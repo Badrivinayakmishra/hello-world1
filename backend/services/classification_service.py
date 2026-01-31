@@ -47,11 +47,12 @@ class ClassificationService:
     BORDERLINE_THRESHOLD = 0.65
 
     # Classification prompt template
-    CLASSIFICATION_PROMPT = """You are a document classification expert. Analyze the following document and classify it as WORK, PERSONAL, or SPAM.
+    CLASSIFICATION_PROMPT = """You are an expert document classifier. Analyze the document and classify it as WORK, PERSONAL, or SPAM.
 
 DOCUMENT METADATA:
 - Title/Subject: {title}
 - Sender: {sender}
+- Sender Domain: {sender_domain}
 - Source Type: {source_type}
 - Date: {date}
 
@@ -60,39 +61,61 @@ DOCUMENT CONTENT:
 
 CLASSIFICATION GUIDELINES:
 
-WORK documents include:
-- Professional emails, meeting notes, project discussions
-- Business communications, reports, proposals
-- Code reviews, technical documentation
-- Client communications, contracts
-- Team discussions, task assignments
-- Company announcements, HR communications
+**WORK** - Professional business communications:
+✓ Examples: Project updates, meeting notes, client emails, code reviews, business reports, team discussions, quarterly reviews, contract negotiations, technical documentation
+✓ Strong indicators: Company domain senders, business hours timestamps, professional terminology (deliverables, stakeholders, KPIs), formal tone
+✓ Keywords: project, deadline, meeting, client, proposal, review, presentation, budget, strategy, milestone, task, deliverable, stakeholder
 
-PERSONAL documents include:
-- Family and friend communications
-- Personal appointments, health matters
-- Shopping, banking (personal accounts)
-- Social events, hobbies
-- Personal photos, memories
-- Non-work subscriptions, newsletters
+**PERSONAL** - Private non-work communications:
+✓ Examples: Family emails, doctor appointments, personal shopping, friend messages, vacation planning, hobby discussions, personal finance
+✓ Strong indicators: Personal email domains (@gmail.com, @yahoo.com, @hotmail.com, @outlook.com), informal tone, personal pronouns
+✓ Keywords: family, birthday, vacation, appointment, recipe, weekend, hobby, party, celebration, gift, health, doctor
 
-SPAM includes:
-- Promotional emails from unknown sources
-- Marketing that user didn't sign up for
-- Phishing attempts, scam messages
-- Automated notifications without value
-- Mass mailings, chain emails
+**SPAM** - Unwanted marketing or malicious content:
+✓ Examples: Unsolicited promotions, phishing attempts, mass marketing, automated notifications without value, "click here now" schemes
+✓ Strong indicators: Excessive capitalization, urgency tactics ("ACT NOW"), suspicious links, unknown senders, promotional language
+✓ Keywords: unsubscribe, limited time, act now, click here, prize, winner, free money, urgent action required
 
-Respond in the following JSON format:
+**DOMAIN-BASED HINTS:**
+- Personal domains (@gmail.com, @yahoo.com, @hotmail.com, @outlook.com, @icloud.com) → Likely PERSONAL
+- Company/organization domains → Likely WORK
+- Marketing/notification domains → Likely SPAM
+
+**EXAMPLES:**
+
+WORK Example:
+Subject: "Q4 Project Review Meeting - Action Items"
+Sender: john.smith@company.com
+Content: "Team, following up on our quarterly review. Please complete deliverables by EOD Friday..."
+→ Classification: WORK, Confidence: 0.95
+
+PERSONAL Example:
+Subject: "Family reunion next month!"
+Sender: mom@gmail.com
+Content: "Hi honey, planning the family get-together for your birthday..."
+→ Classification: PERSONAL, Confidence: 0.98
+
+SPAM Example:
+Subject: "URGENT: You've WON $1,000,000!!!"
+Sender: winner@promotions.xyz
+Content: "Click here NOW to claim your prize! Limited time offer..."
+→ Classification: SPAM, Confidence: 0.99
+
+Respond in JSON format:
 {{
     "classification": "WORK" | "PERSONAL" | "SPAM",
     "confidence": 0.0-1.0,
-    "reason": "Brief explanation of why this classification was chosen",
-    "key_indicators": ["indicator1", "indicator2", "indicator3"],
+    "reason": "Brief explanation with key evidence",
+    "key_indicators": ["specific evidence 1", "specific evidence 2", "specific evidence 3"],
     "is_borderline": true | false
 }}
 
-Be conservative: if unsure between WORK and PERSONAL, mark as borderline.
+**RULES:**
+1. If sender domain is personal email (@gmail.com, etc.) AND content is not clearly work-related → PERSONAL with high confidence
+2. If content contains urgent marketing language or suspicious links → SPAM
+3. If sender is from company domain AND content discusses work topics → WORK with high confidence
+4. If genuinely unclear between WORK/PERSONAL → mark is_borderline: true and confidence < 0.65
+5. Be decisive - most documents have clear indicators
 """
 
     def __init__(self, db: Session):
@@ -117,9 +140,14 @@ Be conservative: if unsure between WORK and PERSONAL, mark as borderline.
             # Build prompt
             content_preview = (document.content or "")[:3000]  # Limit content length
 
+            # Extract sender domain for domain-based hints
+            sender_email = document.sender_email or ""
+            sender_domain = sender_email.split('@')[-1] if '@' in sender_email else "Unknown"
+
             prompt = self.CLASSIFICATION_PROMPT.format(
                 title=document.title or "No title",
                 sender=document.sender_email or document.sender or "Unknown",
+                sender_domain=sender_domain,
                 source_type=document.source_type or "Unknown",
                 date=document.source_created_at.isoformat() if document.source_created_at else "Unknown",
                 content=content_preview
