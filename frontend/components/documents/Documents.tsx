@@ -17,7 +17,7 @@ interface Document {
   lastModified: string
   type: string
   description: string
-  category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items'
+  category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' | 'Web Scraper'
   selected: boolean
   // Additional fields from API
   classification?: string
@@ -290,8 +290,8 @@ export default function Documents() {
         // Create documents from API response with categorization
         const docs: Document[] = apiDocs.map((doc: any, index: number) => {
           // Determine category based on classification, folder path, and content
-          // PRIORITY ORDER: Backend classification > Folder path > Title keywords
-          let category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' = 'Other Items'
+          // PRIORITY ORDER: Web Scraper > Backend classification > Folder path > Title keywords
+          let category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' | 'Web Scraper' = 'Other Items'
           const title = doc.title?.toLowerCase() || ''
           const sourceType = doc.source_type?.toLowerCase() || ''
           const classification = doc.classification?.toLowerCase() || ''
@@ -299,9 +299,13 @@ export default function Documents() {
           // Get folder path from metadata if available
           const folderPath = (doc.metadata?.folder_path || doc.metadata?.box_folder_path || '').toLowerCase()
 
+          // HIGHEST PRIORITY: Web Scraper documents
+          if (sourceType === 'webscraper' || sourceType === 'webscraper_enhanced') {
+            category = 'Web Scraper'
+          }
           // FIRST PRIORITY: Backend classification (most reliable)
           // If the backend has classified this document, trust that classification
-          if (classification === 'personal' || classification === 'spam') {
+          else if (classification === 'personal' || classification === 'spam') {
             category = 'Personal Items'
           } else if (classification === 'work') {
             // Further categorize work items based on title
@@ -350,15 +354,14 @@ export default function Documents() {
                        title.includes('document') || title.includes('presentation') ||
                        title.includes('agreement') || title.includes('contract') ||
                        title.includes('proposal') || title.includes('spec') ||
-                       sourceType === 'file' || sourceType === 'box' ||
-                       sourceType === 'webscraper' || sourceType === 'webscraper_enhanced') {
-              // Box files, regular files, and webscraper content default to Documents
+                       sourceType === 'file' || sourceType === 'box') {
+              // Box files and regular files default to Documents
               category = 'Documents'
             }
           }
 
-          // Final fallback: If source is Box, file, or webscraper, put in Documents (not Personal Items)
-          if (category === 'Other Items' && (sourceType === 'box' || sourceType === 'file' || sourceType === 'webscraper' || sourceType === 'webscraper_enhanced')) {
+          // Final fallback: If source is Box or file, put in Documents (not Personal Items)
+          if (category === 'Other Items' && (sourceType === 'box' || sourceType === 'file')) {
             category = 'Documents'
           }
 
@@ -418,7 +421,8 @@ export default function Documents() {
       meetings: documents.filter(d => d.category === 'Meetings').length,
       documents: documents.filter(d => d.category === 'Documents').length,
       personal: documents.filter(d => d.category === 'Personal Items').length,
-      other: documents.filter(d => d.category === 'Other Items').length
+      other: documents.filter(d => d.category === 'Other Items').length,
+      webscraper: documents.filter(d => d.category === 'Web Scraper').length
     }
   }
 
@@ -1004,6 +1008,14 @@ export default function Documents() {
               color="#086CD9"
               active={activeCategory === 'Other Items'}
               onClick={() => setActiveCategory('Other Items')}
+            />
+            <CategoryCard
+              icon="/docs.png"
+              title="Web Scraper"
+              count={counts.webscraper}
+              color="#FF6B35"
+              active={activeCategory === 'Web Scraper'}
+              onClick={() => setActiveCategory('Web Scraper')}
             />
           </div>
         </div>
