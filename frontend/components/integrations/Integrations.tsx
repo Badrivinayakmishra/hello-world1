@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
+import SyncProgressModal from './SyncProgressModal'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -2479,6 +2480,10 @@ export default function Integrations() {
   // useState causes the setInterval callback to capture stale state values
   const syncPollingInterval = useRef<NodeJS.Timeout | null>(null)
 
+  // SSE-based sync progress modal state (new)
+  const [syncId, setSyncId] = useState<string | null>(null)
+  const [syncingConnector, setSyncingConnector] = useState<string | null>(null)
+
   // Integration details modal state
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null)
@@ -2815,7 +2820,7 @@ export default function Integrations() {
     // DISABLED: Don't save sync state - prevents auto-resume issues
     // saveSyncState({ integration: integrationId, startTime })
 
-    // Initialize progress modal
+    // Initialize progress modal (old polling-based - keeping for backward compat)
     setSyncProgress({
       integration: integrationId,
       status: 'starting',
@@ -2835,10 +2840,18 @@ export default function Integrations() {
       })
 
       if (response.data.success) {
-        // Start polling for status
-        syncPollingInterval.current = setInterval(() => pollSyncStatus(integrationId), 2000)
-        console.log('[DEBUG] Created new polling interval:', syncPollingInterval.current)
-        console.log('[DEBUG] Polling interval stored in ref')
+        // NEW: If sync_id is returned, use SSE-based progress modal
+        if (response.data.sync_id) {
+          // Show SSE-based progress modal
+          setSyncId(response.data.sync_id)
+          setSyncingConnector(integrationId)
+          console.log('[DEBUG] Using SSE-based sync progress:', response.data.sync_id)
+        } else {
+          // FALLBACK: Use polling-based progress (old method)
+          syncPollingInterval.current = setInterval(() => pollSyncStatus(integrationId), 2000)
+          console.log('[DEBUG] Created new polling interval:', syncPollingInterval.current)
+          console.log('[DEBUG] Polling interval stored in ref')
+        }
       } else {
         saveSyncState(null) // Clear saved state on error
         setSyncProgress(prev => prev ? {
@@ -3297,6 +3310,20 @@ export default function Integrations() {
         onDisconnect={disconnectIntegration}
         onSync={syncIntegration}
       />
+
+      {/* SSE-based Sync Progress Modal (New) */}
+      {syncId && syncingConnector && (
+        <SyncProgressModal
+          syncId={syncId}
+          connectorType={syncingConnector}
+          onClose={() => {
+            setSyncId(null)
+            setSyncingConnector(null)
+            // Reload integrations to refresh status
+            loadIntegrations()
+          }}
+        />
+      )}
     </div>
   )
 }

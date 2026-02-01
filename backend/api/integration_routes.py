@@ -2132,6 +2132,11 @@ def sync_connector(connector_type: str):
         finally:
             db.close()
 
+        # Start progress tracking
+        from services.sync_progress_service import get_sync_progress_service
+        progress_service = get_sync_progress_service()
+        sync_id = progress_service.start_sync(tenant, user, connector_type)
+
         # Use threading (Celery infrastructure is broken/unstable)
         # Start thread AFTER db.close() to avoid session conflicts
         import threading
@@ -2142,7 +2147,8 @@ def sync_connector(connector_type: str):
                 since=since,
                 tenant_id=tenant,
                 user_id=user,
-                full_sync=full_sync
+                full_sync=full_sync,
+                sync_id=sync_id  # Pass sync_id to background function
             )
 
         thread = threading.Thread(target=run_sync)
@@ -2152,7 +2158,8 @@ def sync_connector(connector_type: str):
         return jsonify({
             "success": True,
             "message": f"{connector_type.title()} sync started in background",
-            "connector_id": conn_id
+            "connector_id": conn_id,
+            "sync_id": sync_id  # Return sync_id for progress tracking
         })
 
     except Exception as e:
@@ -2168,12 +2175,19 @@ def _run_connector_sync(
     since: datetime,
     tenant_id: str,
     user_id: str,
-    full_sync: bool = False
+    full_sync: bool = False,
+    sync_id: str = None
 ):
     """Background sync function with progress tracking"""
     import time
+    from services.sync_progress_service import get_sync_progress_service
+    from services.email_notification_service import get_email_service
 
-    # Initialize progress
+    # Get services
+    progress_service = get_sync_progress_service()
+    email_service = get_email_service()
+
+    # Initialize progress (keep old dict for backward compatibility with frontend)
     progress_key = f"{tenant_id}:{connector_type}"
     sync_progress[progress_key] = {
         "status": "syncing",
@@ -2185,6 +2199,10 @@ def _run_connector_sync(
         "error": None,
         "started_at": utc_now().isoformat()
     }
+
+    # Update new progress service
+    if sync_id:
+        progress_service.update_progress(sync_id, status='connecting', stage='Connecting to service...')
 
     db = get_db()
     try:
@@ -2244,6 +2262,8 @@ def _run_connector_sync(
             # Update progress - connecting
             sync_progress[progress_key]["progress"] = 10
             sync_progress[progress_key]["current_file"] = "Connecting to service..."
+            if sync_id:
+                progress_service.update_progress(sync_id, status='connecting', stage=f'Connecting to {connector_type.title()}...')
 
             # Run sync
             import asyncio
@@ -2284,8 +2304,14 @@ def _run_connector_sync(
                 # Update progress - fetching
                 sync_progress[progress_key]["progress"] = 20
                 sync_progress[progress_key]["current_file"] = "Fetching documents..."
+                if sync_id:
+                    progress_service.update_progress(sync_id, status='syncing', stage='Fetching documents...')
 
                 documents = loop.run_until_complete(instance.sync(since))
+
+                # Update total items found
+                if sync_id and documents:
+                    progress_service.update_progress(sync_id, total_items=len(documents))
 
                 # Get list of deleted external_ids to skip (user permanently deleted these)
                 deleted_external_ids = set(
@@ -2347,6 +2373,13 @@ def _run_connector_sync(
                 sync_progress[progress_key]["documents_skipped"] = original_count - len(documents)
                 sync_progress[progress_key]["progress"] = 40
                 sync_progress[progress_key]["status"] = "parsing"
+                if sync_id:
+                    progress_service.update_progress(
+                        sync_id,
+                        status='parsing',
+                        stage=f'Parsing {len(documents)} documents...',
+                        total_items=len(documents) if documents else 0
+                    )
 
                 print(f"[Sync] Found {original_count} docs, skipping {original_count - len(documents)} (deleted or existing), processing {len(documents)}")
 
@@ -2357,7 +2390,12 @@ def _run_connector_sync(
                     parse_progress = 40 + int((i / total_docs) * 30)
                     sync_progress[progress_key]["progress"] = parse_progress
                     sync_progress[progress_key]["documents_parsed"] = i + 1
-                    sync_progress[progress_key]["current_file"] = doc.title[:50] if doc.title else f"Document {i+1}"
+                    current_doc_name = doc.title[:50] if doc.title else f"Document {i+1}"
+                    sync_progress[progress_key]["current_file"] = current_doc_name
+
+                    # Update new progress service
+                    if sync_id:
+                        progress_service.increment_processed(sync_id, current_item=current_doc_name)
 
                     # Map connector Document attributes to database Document fields
                     # Connector Document uses: doc_id, source, content, title, metadata, timestamp, author
@@ -2412,6 +2450,8 @@ def _run_connector_sync(
                 sync_progress[progress_key]["status"] = "embedding"
                 sync_progress[progress_key]["progress"] = 75
                 sync_progress[progress_key]["current_file"] = "Creating embeddings..."
+                if sync_id:
+                    progress_service.update_progress(sync_id, status='embedding', stage='Creating embeddings...')
 
                 # REAL EMBEDDING: Embed documents to Pinecone
                 try:
@@ -2496,6 +2536,25 @@ def _run_connector_sync(
                 sync_progress[progress_key]["progress"] = 100
                 sync_progress[progress_key]["current_file"] = None
 
+                # Complete progress tracking
+                if sync_id:
+                    progress_service.complete_sync(sync_id)
+
+                    # Send email notification
+                    # Get user email
+                    from database.models import User
+                    user = db.query(User).filter(User.id == user_id).first()
+                    if user and user.email:
+                        duration = (utc_now() - sync_progress[progress_key].get("started_at", utc_now())).total_seconds() if isinstance(sync_progress[progress_key].get("started_at"), datetime) else 0
+                        email_service.send_sync_complete_notification(
+                            user_email=user.email,
+                            connector_type=connector_type,
+                            total_items=len(documents) if documents else 0,
+                            processed_items=len(documents) if documents else 0,
+                            failed_items=0,
+                            duration_seconds=duration
+                        )
+
             finally:
                 loop.close()
 
@@ -2505,6 +2564,24 @@ def _run_connector_sync(
             connector.last_sync_error = str(e)
             connector.error_message = str(e)
             db.commit()
+
+            # Mark failed
+            if sync_id:
+                progress_service.complete_sync(sync_id, error_message=str(e))
+
+                # Send error email
+                from database.models import User
+                user = db.query(User).filter(User.id == user_id).first()
+                if user and user.email:
+                    email_service.send_sync_complete_notification(
+                        user_email=user.email,
+                        connector_type=connector_type,
+                        total_items=0,
+                        processed_items=0,
+                        failed_items=0,
+                        duration_seconds=0,
+                        error_message=str(e)
+                    )
 
             # Update progress with error
             sync_progress[progress_key]["status"] = "error"

@@ -69,7 +69,6 @@ export default function Documents() {
   const [viewingDocument, setViewingDocument] = useState<FullDocument | null>(null)
   const [loadingDocument, setLoadingDocument] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [displayLimit, setDisplayLimit] = useState(50)
 
   const authHeaders = useAuthHeaders()
@@ -86,17 +85,6 @@ export default function Documents() {
   useEffect(() => {
     filterDocuments()
   }, [documents, activeCategory, searchQuery])
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => {
-      if (openMenuId) {
-        setOpenMenuId(null)
-      }
-    }
-    document.addEventListener('click', handleClickOutside)
-    return () => document.removeEventListener('click', handleClickOutside)
-  }, [openMenuId])
 
   const loadDocuments = async () => {
     try {
@@ -165,11 +153,18 @@ export default function Documents() {
           const createdDate = doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'Unknown'
           const modifiedDate = doc.source_created_at ? new Date(doc.source_created_at).toLocaleDateString() : createdDate
 
-          // Create quick 3-5 word summary
-          let quickSummary = ''
+          // Shorten title - extract filename after last " - " for GitHub docs
+          let displayName = doc.title || 'Untitled Document'
+          if (sourceType === 'github' && displayName.includes(' - ')) {
+            const parts = displayName.split(' - ')
+            displayName = parts[parts.length - 1] // Get the filename part
+          }
 
-          // Try different sources for summary
-          if (doc.summary && doc.summary.trim()) {
+          // Create quick summary - show only source name for GitHub
+          let quickSummary = ''
+          if (sourceType === 'github') {
+            quickSummary = 'GitHub'
+          } else if (doc.summary && doc.summary.trim()) {
             // Take first 5 words from existing summary
             const words = doc.summary.split(' ').filter((w: string) => w.length > 0).slice(0, 5).join(' ')
             quickSummary = words.length > 40 ? words.substring(0, 40) + '...' : words
@@ -200,12 +195,24 @@ export default function Documents() {
             })
           }
 
+          // Determine type - show "Code" for GitHub documents
+          let docType = 'Document'
+          if (sourceType === 'github') {
+            docType = 'Code'
+          } else if (sourceType === 'webscraper') {
+            docType = 'Web Page'
+          } else if (sourceType === 'email') {
+            docType = 'Email'
+          } else if (sourceType === 'box') {
+            docType = 'Box File'
+          }
+
           return {
             id: doc.id || `doc_${index}`,
-            name: doc.title || 'Untitled Document',
+            name: displayName,
             created: createdDate,
             lastModified: modifiedDate,
-            type: sourceType === 'webscraper' ? 'Web Page' : sourceType === 'email' ? 'Email' : sourceType === 'box' ? 'Box File' : 'Document',
+            type: docType,
             description: doc.summary || doc.title || 'No description',
             category,
             selected: false,
@@ -317,27 +324,6 @@ export default function Documents() {
 
   const handleAddDocuments = () => {
     fileInputRef.current?.click()
-  }
-
-  const handleMoveDocument = async (documentId: string, newClassification: string) => {
-    try {
-      const response = await axios.post(
-        `${API_BASE}/documents/${documentId}/reclassify`,
-        { classification: newClassification },
-        { headers: authHeaders }
-      )
-
-      if (response.data.success) {
-        // Reload documents to reflect the change
-        loadDocuments()
-        setOpenMenuId(null)
-      } else {
-        alert('Failed to move document: ' + (response.data.error || 'Unknown error'))
-      }
-    } catch (error: any) {
-      console.error('Error moving document:', error)
-      alert('Failed to move document: ' + (error.response?.data?.error || error.message || 'Unknown error'))
-    }
   }
 
   const handleDeleteDocument = async (documentId: string, documentName: string) => {
@@ -456,8 +442,6 @@ export default function Documents() {
   )
 
   const DocumentListItem = ({ doc }: { doc: Document }) => {
-    const isMenuOpen = openMenuId === doc.id
-
     return (
       <div
         style={{
@@ -546,12 +530,12 @@ export default function Documents() {
           {doc.category}
         </div>
 
-        {/* Three-dot menu */}
-        <div style={{ position: 'relative' }}>
+        {/* Delete icon */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             onClick={(e) => {
               e.stopPropagation()
-              setOpenMenuId(isMenuOpen ? null : doc.id)
+              handleDeleteDocument(doc.id, doc.name)
             }}
             style={{
               padding: '8px',
@@ -562,180 +546,26 @@ export default function Documents() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'background-color 0.2s'
+              transition: 'all 0.2s',
+              color: '#6B7280'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#FEF2F2'
+              e.currentTarget.style.color = '#DC2626'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent'
+              e.currentTarget.style.color = '#6B7280'
+            }}
+            title="Delete document"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="2" fill="#6B7280"/>
-              <circle cx="12" cy="5" r="2" fill="#6B7280"/>
-              <circle cx="12" cy="19" r="2" fill="#6B7280"/>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              <line x1="10" y1="11" x2="10" y2="17"/>
+              <line x1="14" y1="11" x2="14" y2="17"/>
             </svg>
           </button>
-
-          {/* Dropdown menu */}
-          {isMenuOpen && (
-            <div
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: '100%',
-                marginTop: '4px',
-                backgroundColor: '#FFFFFF',
-                border: '1.5px solid #D1D5DB',
-                borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                minWidth: '200px',
-                zIndex: 1000,
-                overflow: 'hidden'
-              }}
-            >
-              {/* Move to submenu - only show for non-web-scraper documents */}
-              {doc.category !== 'Web Scraper' && (
-                <div style={{
-                  padding: '8px 0',
-                  borderBottom: '1px solid #E5E7EB'
-                }}>
-                  <div style={{
-                    padding: '8px 16px',
-                    fontFamily: notionFont,
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#6B7280',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                  }}>
-                    Move to
-                  </div>
-                  {['Documents', 'Personal Items', 'Code', 'Other Items'].map((category) => (
-                    <button
-                      key={category}
-                      onClick={() => {
-                        const classificationMap: any = {
-                          'Documents': 'work',
-                          'Personal Items': 'personal',
-                          'Code': 'work',
-                          'Other Items': 'unknown'
-                        }
-                        handleMoveDocument(doc.id, classificationMap[category])
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 16px',
-                        paddingLeft: '32px',
-                        textAlign: 'left',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontFamily: notionFont,
-                        fontSize: '14px',
-                        color: '#374151',
-                        transition: 'background-color 0.15s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Other actions */}
-              <div style={{ padding: '4px 0' }}>
-                <button
-                  onClick={() => viewDocument(doc.id)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 16px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: notionFont,
-                    fontSize: '14px',
-                    color: '#374151',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    transition: 'background-color 0.15s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                  View Details
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (doc.url) {
-                      window.open(doc.url, '_blank')
-                    }
-                    setOpenMenuId(null)
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 16px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    cursor: doc.url ? 'pointer' : 'not-allowed',
-                    fontFamily: notionFont,
-                    fontSize: '14px',
-                    color: doc.url ? '#374151' : '#9CA3AF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    transition: 'background-color 0.15s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (doc.url) e.currentTarget.style.backgroundColor = '#F9FAFB'
-                  }}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  disabled={!doc.url}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
-                  Open Source
-                </button>
-
-                <button
-                  onClick={() => handleDeleteDocument(doc.id, doc.name)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 16px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: notionFont,
-                    fontSize: '14px',
-                    color: '#DC2626',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    transition: 'background-color 0.15s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FEF2F2'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                  Delete
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     )
@@ -1220,7 +1050,7 @@ export default function Documents() {
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em'
                 }}>
-                  Category
+                  Collection
                 </div>
                 <div></div>
               </div>
