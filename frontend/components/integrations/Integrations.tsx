@@ -3320,7 +3320,7 @@ export default function Integrations() {
             setSyncId(null)
             setSyncingConnector(null)
             // Reload integrations to refresh status
-            loadIntegrations()
+            checkIntegrationStatuses()
           }}
         />
       )}
