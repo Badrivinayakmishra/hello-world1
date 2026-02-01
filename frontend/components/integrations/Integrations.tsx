@@ -2817,22 +2817,6 @@ export default function Integrations() {
 
     const startTime = Date.now()
 
-    // DISABLED: Don't save sync state - prevents auto-resume issues
-    // saveSyncState({ integration: integrationId, startTime })
-
-    // Initialize progress modal (old polling-based - keeping for backward compat)
-    setSyncProgress({
-      integration: integrationId,
-      status: 'starting',
-      progress: 0,
-      documentsFound: 0,
-      documentsParsed: 0,
-      documentsEmbedded: 0,
-      startTime
-    })
-    setShowSyncProgress(true)
-    setSyncStatus(null)
-
     try {
       // Start the sync
       const response = await axios.post(`${API_BASE}/integrations/${integrationId}/sync`, {}, {
@@ -2842,15 +2826,27 @@ export default function Integrations() {
       if (response.data.success) {
         // NEW: If sync_id is returned, use SSE-based progress modal
         if (response.data.sync_id) {
-          // Show SSE-based progress modal
+          // Show NEW SSE-based progress modal
           setSyncId(response.data.sync_id)
           setSyncingConnector(integrationId)
-          console.log('[DEBUG] Using SSE-based sync progress:', response.data.sync_id)
+          // Close old modal if it was showing
+          setShowSyncProgress(false)
+          console.log('[SSE] Using new SSE-based sync progress:', response.data.sync_id)
         } else {
-          // FALLBACK: Use polling-based progress (old method)
+          // FALLBACK: Use OLD polling-based progress modal
+          setSyncProgress({
+            integration: integrationId,
+            status: 'starting',
+            progress: 0,
+            documentsFound: 0,
+            documentsParsed: 0,
+            documentsEmbedded: 0,
+            startTime
+          })
+          setShowSyncProgress(true)
+          setSyncStatus(null)
           syncPollingInterval.current = setInterval(() => pollSyncStatus(integrationId), 2000)
-          console.log('[DEBUG] Created new polling interval:', syncPollingInterval.current)
-          console.log('[DEBUG] Polling interval stored in ref')
+          console.log('[Polling] Using old polling-based progress')
         }
       } else {
         saveSyncState(null) // Clear saved state on error
