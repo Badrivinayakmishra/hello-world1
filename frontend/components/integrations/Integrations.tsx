@@ -381,7 +381,7 @@ const AnimatedCounter = ({ value, label }: { value: number; label: string }) => 
   )
 }
 
-const SyncProgressModal = ({
+const PollingProgressModal = ({
   isOpen,
   onClose,
   progress,
@@ -3292,8 +3292,8 @@ export default function Integrations() {
         isLoading={loadingChannels}
       />
 
-      {/* Sync Progress Modal */}
-      <SyncProgressModal
+      {/* Sync Progress Modal (Polling-based - Legacy) */}
+      <PollingProgressModal
         isOpen={showSyncProgress}
         onClose={handleSyncModalClose}
         progress={syncProgress}
