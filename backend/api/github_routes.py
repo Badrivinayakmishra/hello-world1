@@ -249,7 +249,7 @@ def list_repositories():
             connector = db.query(Connector).filter(
                 Connector.tenant_id == g.tenant_id,
                 Connector.connector_type == ConnectorType.GITHUB,
-                Connector.status == 'active'
+                Connector.status == ConnectorStatus.CONNECTED
             ).first()
 
             if not connector:
@@ -315,7 +315,7 @@ def sync_repository():
             connector = db.query(Connector).filter(
                 Connector.tenant_id == g.tenant_id,
                 Connector.connector_type == ConnectorType.GITHUB,
-                Connector.status == 'active'
+                Connector.status == ConnectorStatus.CONNECTED
             ).first()
 
             if not connector:
