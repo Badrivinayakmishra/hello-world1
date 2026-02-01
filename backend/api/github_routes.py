@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, redirect, g
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from database.models import SessionLocal, Connector, Document, DocumentClassification, DocumentStatus
+from database.models import SessionLocal, Connector, Document, DocumentClassification, DocumentStatus, ConnectorType, ConnectorStatus
 from connectors.github_connector import GitHubConnector
 from services.code_analysis_service import CodeAnalysisService
 from services.auth_service import require_auth
@@ -156,10 +156,8 @@ def connect_github():
             # Check if connector already exists
             existing = db.query(Connector).filter(
                 Connector.tenant_id == g.tenant_id,
-                Connector.connector_type == 'github'
+                Connector.connector_type == ConnectorType.GITHUB
             ).first()
-
-            from database.models import ConnectorStatus, ConnectorType
 
             if existing:
                 # Update existing connector
@@ -250,7 +248,7 @@ def list_repositories():
         try:
             connector = db.query(Connector).filter(
                 Connector.tenant_id == g.tenant_id,
-                Connector.connector_type == 'github',
+                Connector.connector_type == ConnectorType.GITHUB,
                 Connector.status == 'active'
             ).first()
 
@@ -316,7 +314,7 @@ def sync_repository():
             # Get GitHub connector
             connector = db.query(Connector).filter(
                 Connector.tenant_id == g.tenant_id,
-                Connector.connector_type == 'github',
+                Connector.connector_type == ConnectorType.GITHUB,
                 Connector.status == 'active'
             ).first()
 
@@ -569,11 +567,9 @@ def disconnect_github():
     """
     db = get_db()
     try:
-        from database.models import ConnectorStatus
-
         connector = db.query(Connector).filter(
             Connector.tenant_id == g.tenant_id,
-            Connector.connector_type == 'github'
+            Connector.connector_type == ConnectorType.GITHUB
         ).first()
 
         if connector:
