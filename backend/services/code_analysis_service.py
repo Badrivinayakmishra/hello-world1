@@ -179,11 +179,20 @@ No markdown, no explanation, just the JSON object."""
         if len(file_content) > max_chars:
             file_content = file_content[:max_chars] + "\n\n[... truncated ...]"
 
+        # Handle tech_stack being either a list or dict
+        tech_stack = repo_context.get('tech_stack', [])
+        if isinstance(tech_stack, dict):
+            tech_stack_list = list(tech_stack.keys())[:5]
+        elif isinstance(tech_stack, list):
+            tech_stack_list = tech_stack[:5]
+        else:
+            tech_stack_list = []
+
         prompt = f"""You are analyzing a code file from a {repo_context.get('architecture', 'software')} project.
 
 Repository Context:
 - Purpose: {repo_context.get('purpose', 'N/A')}
-- Tech Stack: {', '.join(repo_context.get('tech_stack', [])[:5])}
+- Tech Stack: {', '.join(tech_stack_list)}
 - Architecture: {repo_context.get('architecture', 'N/A')}
 
 File: {file_path}
