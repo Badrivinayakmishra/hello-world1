@@ -340,7 +340,6 @@ export default function Documents() {
       if (response.data.success) {
         // Reload documents to reflect the change
         loadDocuments()
-        setOpenMenuId(null)
       } else {
         alert('Failed to delete document: ' + (response.data.error || 'Unknown error'))
       }
