@@ -510,17 +510,13 @@ def sync_repository():
                 db.refresh(doc)
                 extraction_service.extract_document(doc, db)
 
-            # Trigger embedding (async if Celery available)
+            # Embed documents synchronously for immediate availability
+            # (GitHub syncs are typically small batches, so sync is fine)
             doc_ids = [doc.id for doc in documents_created]
-            try:
-                # Try async task
-                generate_embeddings_task.delay(g.tenant_id, doc_ids)
-                print(f"[GitHub] Queued {len(doc_ids)} documents for embedding")
-            except:
-                # Fallback to sync embedding
-                embedding_service = EmbeddingService()
-                embedding_service.embed_documents(doc_ids, g.tenant_id, db)
-                print(f"[GitHub] Embedded {len(doc_ids)} documents synchronously")
+            print(f"[GitHub] Embedding {len(doc_ids)} documents...")
+            embedding_service = EmbeddingService()
+            embedding_service.embed_documents(doc_ids, g.tenant_id, db)
+            print(f"[GitHub] Embedded {len(doc_ids)} documents successfully")
 
             # Update connector last_sync_at
             connector.last_sync_at = datetime.now(timezone.utc)
