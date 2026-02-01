@@ -159,15 +159,17 @@ def connect_github():
                 Connector.connector_type == 'github'
             ).first()
 
+            from database.models import ConnectorStatus, ConnectorType
+
             if existing:
                 # Update existing connector
-                existing.credentials = {
-                    'access_token': access_token,
-                    'refresh_token': data.get('refresh_token'),
+                existing.access_token = access_token
+                existing.refresh_token = data.get('refresh_token')
+                existing.settings = {
                     'github_user': user_info['login'],
                     'github_user_id': user_info['id']
                 }
-                existing.status = 'active'
+                existing.status = ConnectorStatus.CONNECTED
                 existing.last_sync_at = None
                 existing.updated_at = datetime.now(timezone.utc)
 
@@ -184,14 +186,14 @@ def connect_github():
             # Create new connector
             new_connector = Connector(
                 tenant_id=g.tenant_id,
-                connector_type='github',
-                credentials={
-                    'access_token': access_token,
-                    'refresh_token': data.get('refresh_token'),
+                connector_type=ConnectorType.GITHUB,
+                access_token=access_token,
+                refresh_token=data.get('refresh_token'),
+                settings={
                     'github_user': user_info['login'],
                     'github_user_id': user_info['id']
                 },
-                status='active',
+                status=ConnectorStatus.CONNECTED,
                 created_at=datetime.now(timezone.utc)
             )
 
@@ -258,7 +260,7 @@ def list_repositories():
                     "error": "GitHub not connected"
                 }), 404
 
-            access_token = connector.credentials.get('access_token')
+            access_token = connector.access_token
             github = GitHubConnector(access_token=access_token)
 
             repositories = github.get_repositories()
@@ -324,7 +326,7 @@ def sync_repository():
                     "error": "GitHub not connected"
                 }), 404
 
-            access_token = connector.credentials.get('access_token')
+            access_token = connector.access_token
             github = GitHubConnector(access_token=access_token)
 
             # If no repository specified, get the most recently updated repo
@@ -391,7 +393,7 @@ def sync_repository():
                 title=f"{repository} - Technical Documentation",
                 content=analysis['documentation'],
                 source_type='github',
-                sender_email=connector.credentials.get('github_user'),
+                sender_email=connector.settings.get('github_user'),
                 external_id=f"github_{repository.replace('/', '_')}_docs",
                 doc_metadata={
                     'repository': repository,
@@ -436,7 +438,7 @@ def sync_repository():
                 title=f"{repository} - Overview",
                 content=overview_content,
                 source_type='github',
-                sender_email=connector.credentials.get('github_user'),
+                sender_email=connector.settings.get('github_user'),
                 external_id=f"github_{repository.replace('/', '_')}_overview",
                 doc_metadata={
                     'repository': repository,
@@ -485,7 +487,7 @@ def sync_repository():
                     title=f"{repository} - {file_analysis['file_path']}",
                     content=file_content,
                     source_type='github',
-                    sender_email=connector.credentials.get('github_user'),
+                    sender_email=connector.settings.get('github_user'),
                     external_id=f"github_{repository.replace('/', '_')}_{file_analysis['file_path'].replace('/', '_')}",
                     doc_metadata={
                         'repository': repository,
@@ -565,27 +567,32 @@ def disconnect_github():
         "success": true
     }
     """
+    db = get_db()
     try:
-        db = get_db()
-        try:
-            connector = db.query(Connector).filter(
-                Connector.tenant_id == g.tenant_id,
-                Connector.connector_type == 'github'
-            ).first()
+        from database.models import ConnectorStatus
 
-            if connector:
-                connector.status = 'disconnected'
-                connector.credentials = {}
-                connector.updated_at = datetime.now(timezone.utc)
-                db.commit()
+        connector = db.query(Connector).filter(
+            Connector.tenant_id == g.tenant_id,
+            Connector.connector_type == 'github'
+        ).first()
 
-            return jsonify({"success": True})
+        if connector:
+            connector.status = ConnectorStatus.DISCONNECTED
+            connector.access_token = None
+            connector.refresh_token = None
+            connector.updated_at = datetime.now(timezone.utc)
+            db.commit()
 
-        finally:
-            db.close()
+        return jsonify({"success": True})
 
     except Exception as e:
+        db.rollback()
+        import traceback
+        print(f"[GitHub] Error disconnecting: {str(e)}")
+        print(f"[GitHub] Traceback: {traceback.format_exc()}")
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+    finally:
+        db.close()
