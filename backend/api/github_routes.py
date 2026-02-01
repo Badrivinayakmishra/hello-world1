@@ -508,7 +508,7 @@ def sync_repository():
             extraction_service = ExtractionService()
             for doc in documents_created:
                 db.refresh(doc)
-                extraction_service.extract_and_update(doc, db)
+                extraction_service.extract_document(doc, db)
 
             # Trigger embedding (async if Celery available)
             doc_ids = [doc.id for doc in documents_created]

@@ -13,7 +13,7 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + 
 // Notion-style typography using Inter
 const notionFont = 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif'
 
-// Notion minimal color palette - white, greys, and black
+// Notion minimal color palette - white, greys, and black only
 const notionColors = {
   // Backgrounds
   white: '#FFFFFF',
@@ -21,12 +21,9 @@ const notionColors = {
   mediumGrey: '#E3E2E0',     // Borders, dividers
 
   // Text
-  black: '#37352F',          // Primary text
+  black: '#37352F',          // Primary text, buttons
   darkGrey: '#787774',       // Secondary text
-  lightText: '#9B9A97',      // Tertiary text
-
-  // Accent
-  blue: '#2383E2'            // Buttons, links
+  lightText: '#9B9A97'       // Tertiary text
 }
 
 interface Document {
@@ -847,9 +844,9 @@ export default function Documents() {
                 style={{
                   padding: '10px 24px',
                   borderRadius: '8px',
-                  backgroundColor: notionColors.blue,
+                  backgroundColor: notionColors.black,
                   color: '#FFFFFF',
-                  border: `1.5px solid ${notionColors.blue}`,
+                  border: `1.5px solid ${notionColors.black}`,
                   cursor: 'pointer',
                   fontFamily: notionFont,
                   fontSize: '14px',
@@ -857,12 +854,12 @@ export default function Documents() {
                   transition: 'all 0.2s'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#1A6FCC'
-                  e.currentTarget.style.borderColor = '#1A6FCC'
+                  e.currentTarget.style.backgroundColor = '#2F2D2A'
+                  e.currentTarget.style.borderColor = '#2F2D2A'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = notionColors.blue
-                  e.currentTarget.style.borderColor = notionColors.blue
+                  e.currentTarget.style.backgroundColor = notionColors.black
+                  e.currentTarget.style.borderColor = notionColors.black
                 }}
               >
                 Save & Find Gaps
@@ -909,7 +906,7 @@ export default function Documents() {
                 top: '50%',
                 transform: 'translateY(-50%)',
                 padding: '8px',
-                backgroundColor: notionColors.blue,
+                backgroundColor: notionColors.black,
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -918,8 +915,8 @@ export default function Documents() {
                 justifyContent: 'center',
                 transition: 'background-color 0.2s'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A6FCC'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notionColors.blue}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2F2D2A'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notionColors.black}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/>
@@ -1076,7 +1073,7 @@ export default function Documents() {
                 width: '40px',
                 height: '40px',
                 border: `3px solid ${notionColors.mediumGrey}`,
-                borderTop: `3px solid ${notionColors.blue}`,
+                borderTop: `3px solid ${notionColors.black}`,
                 borderRadius: '50%',
                 animation: 'spin 0.8s linear infinite'
               }}>
@@ -1136,7 +1133,7 @@ export default function Documents() {
                     marginTop: '8px',
                     padding: '10px 20px',
                     borderRadius: '8px',
-                    backgroundColor: notionColors.blue,
+                    backgroundColor: notionColors.black,
                     color: '#FFFFFF',
                     border: 'none',
                     cursor: 'pointer',
