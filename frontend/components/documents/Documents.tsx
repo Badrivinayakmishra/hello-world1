@@ -13,27 +13,20 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + 
 // Notion-style typography using Inter
 const notionFont = 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif'
 
-// Notion light mode color palette
+// Notion minimal color palette - white, greys, and black
 const notionColors = {
   // Backgrounds
-  mainBg: '#FFFFFF',
-  sidebarBg: '#F7F6F3',
-  hoverBg: '#F1F1EF',
+  white: '#FFFFFF',
+  lightGrey: '#F7F6F3',      // Sidebar, cards
+  mediumGrey: '#E3E2E0',     // Borders, dividers
 
   // Text
-  primaryText: '#37352F',
-  secondaryText: '#787774',
+  black: '#37352F',          // Primary text
+  darkGrey: '#787774',       // Secondary text
+  lightText: '#9B9A97',      // Tertiary text
 
-  // Category colors (Notion palette)
-  grey: { bg: '#F1F1EF', text: '#787774' },
-  brown: { bg: '#F4EEEE', text: '#9F6B53' },
-  orange: { bg: '#FAEBDD', text: '#D9730D' },
-  yellow: { bg: '#FBF3DB', text: '#CB912F' },
-  green: { bg: '#EDF3EC', text: '#448361' },
-  blue: { bg: '#E7F3F8', text: '#337EA9' },
-  purple: { bg: '#F6F3F9', text: '#9065B0' },
-  pink: { bg: '#FAF1F5', text: '#C14C8A' },
-  red: { bg: '#FDEBEC', text: '#D44C47' }
+  // Accent
+  blue: '#2383E2'            // Buttons, links
 }
 
 interface Document {
@@ -752,12 +745,12 @@ export default function Documents() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: notionColors.mainBg }}>
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: notionColors.white }}>
       <Sidebar activeItem={activeItem} onItemClick={setActiveItem} />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <div className="px-8 py-6" style={{ backgroundColor: notionColors.mainBg }}>
+        <div className="px-8 py-6" style={{ backgroundColor: notionColors.white }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -768,7 +761,7 @@ export default function Documents() {
               fontFamily: notionFont,
               fontSize: '32px',
               fontWeight: 700,
-              color: notionColors.primaryText,
+              color: notionColors.black,
               letterSpacing: '-0.02em'
             }}>
               Knowledge Hub
@@ -854,9 +847,9 @@ export default function Documents() {
                 style={{
                   padding: '10px 24px',
                   borderRadius: '8px',
-                  backgroundColor: notionColors.blue.text,
+                  backgroundColor: notionColors.blue,
                   color: '#FFFFFF',
-                  border: `1.5px solid ${notionColors.blue.text}`,
+                  border: `1.5px solid ${notionColors.blue}`,
                   cursor: 'pointer',
                   fontFamily: notionFont,
                   fontSize: '14px',
@@ -864,12 +857,12 @@ export default function Documents() {
                   transition: 'all 0.2s'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#2C6A8E'
-                  e.currentTarget.style.borderColor = '#2C6A8E'
+                  e.currentTarget.style.backgroundColor = '#1A6FCC'
+                  e.currentTarget.style.borderColor = '#1A6FCC'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = notionColors.blue.text
-                  e.currentTarget.style.borderColor = notionColors.blue.text
+                  e.currentTarget.style.backgroundColor = notionColors.blue
+                  e.currentTarget.style.borderColor = notionColors.blue
                 }}
               >
                 Save & Find Gaps
@@ -897,16 +890,16 @@ export default function Documents() {
                 padding: '12px 16px',
                 paddingRight: '50px',
                 borderRadius: '8px',
-                border: '1.5px solid #D1D5DB',
-                backgroundColor: notionColors.mainBg,
+                border: `1.5px solid ${notionColors.mediumGrey}`,
+                backgroundColor: notionColors.white,
                 outline: 'none',
                 fontFamily: notionFont,
                 fontSize: '15px',
-                color: notionColors.primaryText,
+                color: notionColors.black,
                 transition: 'border-color 0.2s'
               }}
-              onFocus={(e) => e.currentTarget.style.borderColor = '#9CA3AF'}
-              onBlur={(e) => e.currentTarget.style.borderColor = '#D1D5DB'}
+              onFocus={(e) => e.currentTarget.style.borderColor = notionColors.darkGrey}
+              onBlur={(e) => e.currentTarget.style.borderColor = notionColors.mediumGrey}
             />
             <button
               onClick={filterDocuments}
@@ -916,7 +909,7 @@ export default function Documents() {
                 top: '50%',
                 transform: 'translateY(-50%)',
                 padding: '8px',
-                backgroundColor: notionColors.blue.text,
+                backgroundColor: notionColors.blue,
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -925,8 +918,8 @@ export default function Documents() {
                 justifyContent: 'center',
                 transition: 'background-color 0.2s'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2C6A8E'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notionColors.blue.text}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A6FCC'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notionColors.blue}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/>
@@ -937,7 +930,7 @@ export default function Documents() {
         </div>
 
         {/* Category Cards Grid */}
-        <div className="px-8 pb-6" style={{ backgroundColor: notionColors.mainBg }}>
+        <div className="px-8 pb-6" style={{ backgroundColor: notionColors.white }}>
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(7, 1fr)',
@@ -955,8 +948,8 @@ export default function Documents() {
                   <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
                 </svg>
               }
-              bgColor={notionColors.brown.bg}
-              textColor={notionColors.brown.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'All Items'}
               onClick={() => setActiveCategory('All Items')}
@@ -972,8 +965,8 @@ export default function Documents() {
                   <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               }
-              bgColor={notionColors.green.bg}
-              textColor={notionColors.green.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Documents'}
               onClick={() => setActiveCategory('Documents')}
@@ -989,8 +982,8 @@ export default function Documents() {
                   <path d="M8 6L2 12L8 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               }
-              bgColor={notionColors.blue.bg}
-              textColor={notionColors.blue.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Code'}
               onClick={() => setActiveCategory('Code')}
@@ -1007,8 +1000,8 @@ export default function Documents() {
                   <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               }
-              bgColor={notionColors.purple.bg}
-              textColor={notionColors.purple.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Meetings'}
               onClick={() => setActiveCategory('Meetings')}
@@ -1024,8 +1017,8 @@ export default function Documents() {
                   <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeWidth="2"/>
                 </svg>
               }
-              bgColor={notionColors.yellow.bg}
-              textColor={notionColors.yellow.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Web Scraper'}
               onClick={() => setActiveCategory('Web Scraper')}
@@ -1041,8 +1034,8 @@ export default function Documents() {
                   <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
                 </svg>
               }
-              bgColor={notionColors.pink.bg}
-              textColor={notionColors.pink.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Personal Items'}
               onClick={() => setActiveCategory('Personal Items')}
@@ -1059,8 +1052,8 @@ export default function Documents() {
                   <circle cx="12" cy="18" r="1.5" fill="currentColor"/>
                 </svg>
               }
-              bgColor={notionColors.grey.bg}
-              textColor={notionColors.grey.text}
+              bgColor={notionColors.lightGrey}
+              textColor={notionColors.black}
               isLarge={false}
               active={activeCategory === 'Other Items'}
               onClick={() => setActiveCategory('Other Items')}
@@ -1069,7 +1062,7 @@ export default function Documents() {
         </div>
 
         {/* Documents List */}
-        <div className="flex-1 px-8 py-6 overflow-auto" style={{ backgroundColor: notionColors.mainBg }}>
+        <div className="flex-1 px-8 py-6 overflow-auto" style={{ backgroundColor: notionColors.white }}>
           {loading ? (
             <div style={{
               display: 'flex',
@@ -1082,8 +1075,8 @@ export default function Documents() {
               <div style={{
                 width: '40px',
                 height: '40px',
-                border: `3px solid ${notionColors.hoverBg}`,
-                borderTop: `3px solid ${notionColors.blue.text}`,
+                border: `3px solid ${notionColors.mediumGrey}`,
+                borderTop: `3px solid ${notionColors.blue}`,
                 borderRadius: '50%',
                 animation: 'spin 0.8s linear infinite'
               }}>
@@ -1097,7 +1090,7 @@ export default function Documents() {
               <span style={{
                 fontFamily: notionFont,
                 fontSize: '15px',
-                color: notionColors.secondaryText
+                color: notionColors.darkGrey
               }}>
                 Loading documents...
               </span>
@@ -1119,14 +1112,14 @@ export default function Documents() {
                 fontFamily: notionFont,
                 fontSize: '18px',
                 fontWeight: 600,
-                color: notionColors.primaryText
+                color: notionColors.black
               }}>
                 {searchQuery ? 'No documents found' : 'No documents yet'}
               </h3>
               <p style={{
                 fontFamily: notionFont,
                 fontSize: '14px',
-                color: notionColors.secondaryText,
+                color: notionColors.darkGrey,
                 textAlign: 'center',
                 maxWidth: '400px',
                 lineHeight: '1.6'
@@ -1143,7 +1136,7 @@ export default function Documents() {
                     marginTop: '8px',
                     padding: '10px 20px',
                     borderRadius: '8px',
-                    backgroundColor: notionColors.blue.text,
+                    backgroundColor: notionColors.blue,
                     color: '#FFFFFF',
                     border: 'none',
                     cursor: 'pointer',

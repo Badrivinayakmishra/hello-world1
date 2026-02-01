@@ -453,22 +453,22 @@ def sync_repository():
 
             # 3. Individual file analyses (top 10 most important)
             for file_analysis in analysis['file_analyses'][:10]:
-                file_content = f"""# {file_analysis['file_path']}
+                file_content = f"""# {file_analysis.get('file_path', 'Unknown file')}
 
 ## Summary
-{file_analysis['summary']}
+{file_analysis.get('summary', 'No summary available')}
 
 ## Language
-{file_analysis['language']}
+{file_analysis.get('language', 'Unknown')}
 
 ## Key Functions/Classes
-{chr(10).join(f'- {func}' for func in file_analysis['key_functions'])}
+{chr(10).join(f'- {func}' for func in file_analysis.get('key_functions', []))}
 
 ## Dependencies
-{chr(10).join(f'- {dep}' for dep in file_analysis['dependencies'])}
+{chr(10).join(f'- {dep}' for dep in file_analysis.get('dependencies', []))}
 
 ## Business Logic
-{file_analysis['business_logic']}
+{file_analysis.get('business_logic', 'No business logic described')}
 
 ## API Endpoints
 {chr(10).join(f'- {ep}' for ep in file_analysis.get('api_endpoints', []))}
@@ -477,7 +477,7 @@ def sync_repository():
 {chr(10).join(f'- {model}' for model in file_analysis.get('data_models', []))}
 
 ## Important Notes
-{chr(10).join(f'- {note}' for note in file_analysis['important_notes'])}
+{chr(10).join(f'- {note}' for note in file_analysis.get('important_notes', []))}
 """
 
                 doc_file = Document(
