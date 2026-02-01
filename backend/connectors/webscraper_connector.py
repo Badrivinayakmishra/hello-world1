@@ -64,8 +64,11 @@ class WebScraperConnector(BaseConnector):
             self.status = ConnectorStatus.CONNECTING
 
             start_url = self.config.settings.get("start_url", "").strip()
+            print(f"[WebScraper] Attempting to connect to: {start_url}")
             if not start_url:
-                self._set_error("No start_url configured. Please set 'start_url' in settings.")
+                error_msg = "No start_url configured. Please set 'start_url' in settings."
+                self._set_error(error_msg)
+                print(f"[WebScraper] ERROR: {error_msg}")
                 return False
 
             # Validate URL
@@ -95,7 +98,11 @@ class WebScraperConnector(BaseConnector):
             return True
 
         except Exception as e:
-            self._set_error(f"Failed to connect: {str(e)}")
+            error_msg = f"Failed to connect: {str(e)}"
+            self._set_error(error_msg)
+            print(f"[WebScraper] ERROR: {error_msg}")
+            import traceback
+            print(f"[WebScraper] Traceback: {traceback.format_exc()}")
             return False
 
     async def disconnect(self) -> bool:
