@@ -286,7 +286,7 @@ No markdown, no explanation, just the JSON object."""
         file_summaries = []
         for analysis in file_analyses[:50]:  # Limit to 50 most important files
             file_summaries.append(
-                f"- **{analysis['file_path']}**: {analysis['summary']}"
+                f"- **{analysis.get('file_path', 'Unknown')}**: {analysis.get('summary', 'No summary available')}"
             )
 
         # Collect all API endpoints
@@ -304,7 +304,7 @@ No markdown, no explanation, just the JSON object."""
         for analysis in file_analyses:
             notes = analysis.get('important_notes', [])
             if notes:
-                all_notes.append(f"**{analysis['file_path']}**: {', '.join(notes)}")
+                all_notes.append(f"**{analysis.get('file_path', 'Unknown')}**: {', '.join(notes)}")
 
         prompt = f"""You are a technical writer creating comprehensive documentation for a codebase.
 
