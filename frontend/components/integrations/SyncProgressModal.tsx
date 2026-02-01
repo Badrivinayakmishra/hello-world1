@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import axios from 'axios'
 
 interface SyncProgressModalProps {
   syncId: string
@@ -19,7 +20,12 @@ interface ProgressData {
   current_item?: string
   error_message?: string
   percent_complete: number
+  started_at?: string
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+  : 'http://localhost:5003/api'
 
 export default function SyncProgressModal({
   syncId,
@@ -27,12 +33,75 @@ export default function SyncProgressModal({
   onClose
 }: SyncProgressModalProps) {
   const [progress, setProgress] = useState<ProgressData | null>(null)
-  const [eventSource, setEventSource] = useState<EventSource | null>(null)
+  const [emailNotify, setEmailNotify] = useState(false)
+  const [estimatedTime, setEstimatedTime] = useState<string>('Calculating...')
+  const [elapsedTime, setElapsedTime] = useState<number>(0)
+  const startTimeRef = useRef<number>(Date.now())
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const progressHistoryRef = useRef<Array<{ time: number; percent: number }>>([])
 
+  // Calculate estimated time remaining
   useEffect(() => {
-    // Connect to SSE stream
+    if (!progress || progress.status === 'complete' || progress.status === 'error') {
+      setEstimatedTime('')
+      return
+    }
+
+    const now = Date.now()
+    const elapsed = (now - startTimeRef.current) / 1000 // seconds
+    setElapsedTime(elapsed)
+
+    // Track progress history for better estimation
+    if (progress.percent_complete > 0) {
+      progressHistoryRef.current.push({
+        time: now,
+        percent: progress.percent_complete
+      })
+
+      // Keep last 10 data points
+      if (progressHistoryRef.current.length > 10) {
+        progressHistoryRef.current.shift()
+      }
+
+      // Calculate rate of progress
+      if (progressHistoryRef.current.length >= 2) {
+        const first = progressHistoryRef.current[0]
+        const last = progressHistoryRef.current[progressHistoryRef.current.length - 1]
+
+        const percentChange = last.percent - first.percent
+        const timeChange = (last.time - first.time) / 1000 // seconds
+
+        if (percentChange > 0 && timeChange > 0) {
+          const percentPerSecond = percentChange / timeChange
+          const remainingPercent = 100 - progress.percent_complete
+          const estimatedSeconds = remainingPercent / percentPerSecond
+
+          // Format time
+          if (estimatedSeconds < 60) {
+            setEstimatedTime(`~${Math.ceil(estimatedSeconds)}s remaining`)
+          } else if (estimatedSeconds < 3600) {
+            const mins = Math.ceil(estimatedSeconds / 60)
+            setEstimatedTime(`~${mins} min remaining`)
+          } else {
+            const hours = Math.floor(estimatedSeconds / 3600)
+            const mins = Math.ceil((estimatedSeconds % 3600) / 60)
+            setEstimatedTime(`~${hours}h ${mins}m remaining`)
+          }
+        }
+      }
+    }
+  }, [progress])
+
+  // Connect to SSE stream
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      console.error('No auth token found')
+      return
+    }
+
     const es = new EventSource(
-      `http://localhost:5003/api/sync-progress/${syncId}/stream`,
+      `${API_BASE}/sync-progress/${syncId}/stream`,
       { withCredentials: true }
     )
 
@@ -54,11 +123,17 @@ export default function SyncProgressModal({
     es.addEventListener('complete', (event: MessageEvent) => {
       const data = JSON.parse(event.data)
       setProgress(data)
-      // Auto-close after 3 seconds
+
+      // Send email notification if enabled
+      if (emailNotify) {
+        sendEmailNotification()
+      }
+
+      // Auto-close after 5 seconds
       setTimeout(() => {
         es.close()
         onClose()
-      }, 3000)
+      }, 5000)
     })
 
     es.addEventListener('error', (event: MessageEvent) => {
@@ -70,119 +145,486 @@ export default function SyncProgressModal({
       console.error('SSE connection error')
     }
 
-    setEventSource(es)
+    eventSourceRef.current = es
 
     return () => {
       es.close()
     }
-  }, [syncId, onClose])
+  }, [syncId, onClose, emailNotify])
+
+  const sendEmailNotification = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      await axios.post(
+        `${API_BASE}/sync-progress/${syncId}/notify`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    } catch (error) {
+      console.error('Failed to send email notification:', error)
+    }
+  }
+
+  const getStatusIcon = () => {
+    if (!progress) return null
+
+    switch (progress.status) {
+      case 'complete':
+        return (
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: '#D1FAE5',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <svg width="32" height="32" fill="none" viewBox="0 0 24 24">
+              <path
+                stroke="#10B981"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.5}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </div>
+        )
+      case 'error':
+        return (
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: '#FEE2E2',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <svg width="32" height="32" fill="none" viewBox="0 0 24 24">
+              <path
+                stroke="#DC2626"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.5}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </div>
+        )
+      default:
+        return (
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: '#DBEAFE',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'spin 2s linear infinite'
+          }}>
+            <style>{`
+              @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+            `}</style>
+            <svg width="32" height="32" fill="none" viewBox="0 0 24 24">
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="#3B82F6"
+                strokeWidth="3"
+                strokeDasharray="60"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+        )
+    }
+  }
+
+  const getStatusText = () => {
+    if (!progress) return 'Connecting...'
+
+    switch (progress.status) {
+      case 'connecting':
+        return 'Connecting to service...'
+      case 'syncing':
+        return 'Fetching documents...'
+      case 'parsing':
+        return 'Parsing documents...'
+      case 'embedding':
+        return 'Processing and indexing...'
+      case 'complete':
+        return 'Sync completed successfully!'
+      case 'error':
+        return 'Sync failed'
+      default:
+        return progress.stage || 'Processing...'
+    }
+  }
 
   if (!progress) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 max-w-md w-full">
-          <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999
+      }}>
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '12px',
+          padding: '32px',
+          maxWidth: '500px',
+          width: '90%',
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              margin: '0 auto',
+              border: '4px solid #E5E7EB',
+              borderTopColor: '#3B82F6',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            <p style={{
+              marginTop: '16px',
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '14px',
+              color: '#6B7280'
+            }}>
+              Connecting to sync service...
+            </p>
           </div>
         </div>
       </div>
     )
   }
 
-  const getStatusIcon = () => {
-    if (progress.status === 'complete') {
-      return (
-        <svg className="h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      )
-    } else if (progress.status === 'error') {
-      return (
-        <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      )
-    } else {
-      return (
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      )
-    }
-  }
+  const progressPercent = Math.min(progress.percent_complete || 0, 100)
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full">
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999,
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '12px',
+        padding: '32px',
+        maxWidth: '500px',
+        width: '100%',
+        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+      }}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{
+            fontFamily: '"Work Sans", sans-serif',
+            fontSize: '20px',
+            fontWeight: 600,
+            color: '#081028',
+            margin: 0
+          }}>
             Syncing {connectorType.charAt(0).toUpperCase() + connectorType.slice(1)}
           </h2>
-          {progress.status === 'complete' || progress.status === 'error' ? (
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          {(progress.status === 'complete' || progress.status === 'error') && (
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px',
+                color: '#9CA3AF'
+              }}
+            >
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+                <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-          ) : null}
-        </div>
-
-        {/* Status Icon */}
-        <div className="flex justify-center mb-4">
-          {getStatusIcon()}
-        </div>
-
-        {/* Stage */}
-        <div className="text-center mb-4">
-          <p className="text-lg font-medium text-gray-900">{progress.stage}</p>
-          {progress.current_item && (
-            <p className="text-sm text-gray-500 mt-1 truncate">{progress.current_item}</p>
           )}
         </div>
 
+        {/* Status Icon */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+          {getStatusIcon()}
+        </div>
+
+        {/* Status Text */}
+        <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+          <p style={{
+            fontFamily: '"Work Sans", sans-serif',
+            fontSize: '16px',
+            fontWeight: 600,
+            color: '#081028',
+            margin: 0
+          }}>
+            {getStatusText()}
+          </p>
+        </div>
+
+        {/* Current Item */}
+        {progress.current_item && progress.status !== 'complete' && progress.status !== 'error' && (
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <p style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '13px',
+              color: '#6B7280',
+              margin: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              padding: '0 20px'
+            }}>
+              {progress.current_item}
+            </p>
+          </div>
+        )}
+
+        {/* Time and Progress Info */}
+        {progress.status !== 'complete' && progress.status !== 'error' && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: '12px',
+            fontFamily: '"Work Sans", sans-serif',
+            fontSize: '12px',
+            color: '#6B7280'
+          }}>
+            <span>Elapsed: {Math.floor(elapsedTime / 60)}:{String(Math.floor(elapsedTime % 60)).padStart(2, '0')}</span>
+            <span>{estimatedTime}</span>
+          </div>
+        )}
+
         {/* Progress Bar */}
         {progress.total_items > 0 && (
-          <div className="mb-4">
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${progress.percent_complete}%` }}
-              ></div>
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: '#E5E7EB',
+              borderRadius: '999px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${progressPercent}%`,
+                height: '100%',
+                backgroundColor: progress.status === 'error' ? '#DC2626' : progress.status === 'complete' ? '#10B981' : '#3B82F6',
+                transition: 'width 0.3s ease-out',
+                borderRadius: '999px'
+              }}></div>
             </div>
-            <div className="flex justify-between text-sm text-gray-600 mt-2">
-              <span>{progress.processed_items} / {progress.total_items}</span>
-              <span>{Math.round(progress.percent_complete)}%</span>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginTop: '8px',
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '13px',
+              color: '#6B7280'
+            }}>
+              <span>{progress.processed_items} / {progress.total_items} documents</span>
+              <span style={{ fontWeight: 600 }}>{Math.round(progressPercent)}%</span>
             </div>
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{progress.total_items}</div>
-            <div className="text-xs text-gray-500">Found</div>
+        {/* Live Stats */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: '12px',
+          marginBottom: '24px'
+        }}>
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#F9FAFB',
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '24px',
+              fontWeight: 700,
+              color: '#3B82F6',
+              marginBottom: '4px'
+            }}>
+              {progress.total_items}
+            </div>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '11px',
+              color: '#6B7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Found
+            </div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{progress.processed_items}</div>
-            <div className="text-xs text-gray-500">Processed</div>
+
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#F0FDF4',
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '24px',
+              fontWeight: 700,
+              color: '#10B981',
+              marginBottom: '4px'
+            }}>
+              {progress.processed_items}
+            </div>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '11px',
+              color: '#6B7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Processed
+            </div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">{progress.failed_items}</div>
-            <div className="text-xs text-gray-500">Failed</div>
+
+          <div style={{
+            padding: '16px',
+            backgroundColor: progress.failed_items > 0 ? '#FEF2F2' : '#F9FAFB',
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '24px',
+              fontWeight: 700,
+              color: progress.failed_items > 0 ? '#DC2626' : '#6B7280',
+              marginBottom: '4px'
+            }}>
+              {progress.failed_items}
+            </div>
+            <div style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '11px',
+              color: '#6B7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Failed
+            </div>
           </div>
         </div>
 
+        {/* Email Notification Toggle */}
+        {progress.status !== 'complete' && progress.status !== 'error' && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 16px',
+            backgroundColor: '#F9FAFB',
+            borderRadius: '8px',
+            marginBottom: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
+                <path
+                  stroke="#6B7280"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+              <span style={{
+                fontFamily: '"Work Sans", sans-serif',
+                fontSize: '13px',
+                color: '#081028',
+                fontWeight: 500
+              }}>
+                Email me when complete
+              </span>
+            </div>
+            <button
+              onClick={() => setEmailNotify(!emailNotify)}
+              style={{
+                width: '44px',
+                height: '24px',
+                borderRadius: '999px',
+                backgroundColor: emailNotify ? '#3B82F6' : '#E5E7EB',
+                border: 'none',
+                cursor: 'pointer',
+                position: 'relative',
+                transition: 'background-color 0.2s'
+              }}
+            >
+              <div style={{
+                width: '20px',
+                height: '20px',
+                borderRadius: '50%',
+                backgroundColor: 'white',
+                position: 'absolute',
+                top: '2px',
+                left: emailNotify ? '22px' : '2px',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+              }}></div>
+            </button>
+          </div>
+        )}
+
         {/* Error Message */}
         {progress.error_message && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-sm text-red-800">{progress.error_message}</p>
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FCA5A5',
+            borderRadius: '8px',
+            marginBottom: '16px'
+          }}>
+            <p style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '13px',
+              color: '#DC2626',
+              margin: 0
+            }}>
+              {progress.error_message}
+            </p>
           </div>
         )}
 
         {/* Success Message */}
         {progress.status === 'complete' && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-sm text-green-800">
-              Sync completed successfully! {progress.processed_items} items processed.
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#F0FDF4',
+            border: '1px solid #86EFAC',
+            borderRadius: '8px'
+          }}>
+            <p style={{
+              fontFamily: '"Work Sans", sans-serif',
+              fontSize: '13px',
+              color: '#10B981',
+              margin: 0,
+              textAlign: 'center'
+            }}>
+              ✓ Successfully synced {progress.processed_items} {progress.processed_items === 1 ? 'document' : 'documents'}
+              {emailNotify && ' • Email notification sent'}
             </p>
           </div>
         )}
