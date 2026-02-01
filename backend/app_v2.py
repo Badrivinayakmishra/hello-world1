@@ -32,9 +32,14 @@ CORS(app,
      supports_credentials=True,
      resources={
          r"/api/*": {
-             "origins": ["http://localhost:3000", "http://localhost:3006", "*"],
+             "origins": [
+                 "http://localhost:3000",
+                 "http://localhost:3006",
+                 "https://twondbrain-frontend.onrender.com",
+                 "https://2ndbrain.onrender.com"
+             ],
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization", "X-Tenant"]
+             "allow_headers": ["Content-Type", "Authorization"]
          }
      })
 
