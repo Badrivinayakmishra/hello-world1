@@ -1,7 +1,7 @@
 """
 Document Parser for Office Files
-Uses LlamaParse for all document parsing with GPT-4o-mini processing
-Falls back to traditional parsers if LlamaParse is unavailable
+Uses Azure Mistral Document AI (mistral-document-ai-2505) for all document parsing
+Falls back to traditional parsers if Azure Document AI is unavailable
 """
 
 import os
@@ -10,12 +10,12 @@ from typing import Dict, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
-# Try to import LlamaParse parser
+# Try to import Azure Document AI parser
 try:
-    from parsers.llamaparse_parser import LlamaParseDocumentParser
-    HAS_LLAMAPARSE = True
+    from parsers.azure_doc_parser import AzureDocumentParser
+    HAS_AZURE_DOC_AI = True
 except ImportError:
-    HAS_LLAMAPARSE = False
+    HAS_AZURE_DOC_AI = False
 
 # PDF parsing (fallback)
 try:
@@ -49,32 +49,32 @@ except ImportError:
 class DocumentParser:
     """Parse various document formats to extract text"""
 
-    def __init__(self, config=None, use_llamaparse=True):
+    def __init__(self, config=None, use_azure_doc_ai=True):
         """
         Initialize document parser
 
         Args:
-            config: Configuration object (required if use_llamaparse=True)
-            use_llamaparse: Whether to use LlamaParse (default: True)
+            config: Configuration object (optional, will use env vars if not provided)
+            use_azure_doc_ai: Whether to use Azure Document AI (default: True)
         """
         self.config = config
-        self.use_llamaparse = use_llamaparse and HAS_LLAMAPARSE
-        self.llamaparse_parser = None
+        self.use_azure_doc_ai = use_azure_doc_ai and HAS_AZURE_DOC_AI
+        self.azure_doc_parser = None
 
-        # Initialize LlamaParse if available and requested
-        if self.use_llamaparse and config:
+        # Initialize Azure Document AI if available and requested
+        if self.use_azure_doc_ai:
             try:
-                self.llamaparse_parser = LlamaParseDocumentParser(config)
-                print("✓ Using LlamaParse for document parsing")
+                self.azure_doc_parser = AzureDocumentParser(config)
+                print("✓ Using Azure Mistral Document AI for document parsing")
             except Exception as e:
-                print(f"⚠ Failed to initialize LlamaParse: {e}")
+                print(f"⚠ Failed to initialize Azure Document AI: {e}")
                 print("  Falling back to traditional parsers")
-                self.use_llamaparse = False
+                self.use_azure_doc_ai = False
 
         # Set up supported formats
         self.supported_formats = []
-        if self.use_llamaparse and self.llamaparse_parser:
-            self.supported_formats = self.llamaparse_parser.supported_formats
+        if self.use_azure_doc_ai and self.azure_doc_parser:
+            self.supported_formats = self.azure_doc_parser.supported_formats
         else:
             if HAS_PDF:
                 self.supported_formats.append('.pdf')
@@ -93,7 +93,7 @@ class DocumentParser:
     def parse(self, file_path: str) -> Optional[Dict]:
         """
         Parse a document and return extracted text
-        Uses LlamaParse if available, falls back to traditional parsers
+        Uses Azure Mistral Document AI if available, falls back to traditional parsers
 
         Returns:
             Dict with 'content' and 'metadata' or None if parsing failed
@@ -103,12 +103,12 @@ class DocumentParser:
 
         ext = Path(file_path).suffix.lower()
 
-        # Try LlamaParse first if available
-        if self.use_llamaparse and self.llamaparse_parser:
+        # Try Azure Document AI first if available
+        if self.use_azure_doc_ai and self.azure_doc_parser:
             try:
-                return self.llamaparse_parser.parse(file_path)
+                return self.azure_doc_parser.parse(file_path)
             except Exception as e:
-                print(f"  ⚠ LlamaParse failed: {e}")
+                print(f"  ⚠ Azure Document AI failed: {e}")
                 print(f"  Falling back to traditional parser for {Path(file_path).name}")
 
         # Fall back to traditional parsers
