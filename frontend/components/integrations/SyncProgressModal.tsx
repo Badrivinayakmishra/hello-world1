@@ -36,9 +36,11 @@ export default function SyncProgressModal({
   const [emailNotify, setEmailNotify] = useState(false)
   const [estimatedTime, setEstimatedTime] = useState<string>('Calculating...')
   const [elapsedTime, setElapsedTime] = useState<number>(0)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const startTimeRef = useRef<number>(Date.now())
   const eventSourceRef = useRef<EventSource | null>(null)
   const progressHistoryRef = useRef<Array<{ time: number; percent: number }>>([])
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Calculate estimated time remaining
   useEffect(() => {
@@ -96,32 +98,65 @@ export default function SyncProgressModal({
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     if (!token) {
-      console.error('No auth token found')
+      console.error('[SyncProgress] No auth token found')
+      setConnectionError('Authentication required. Please log in again.')
       return
     }
 
+    console.log('[SyncProgress] Connecting to SSE stream for sync:', syncId)
+
     // EventSource cannot send custom headers, so pass token as query param
-    const es = new EventSource(
-      `${API_BASE}/sync-progress/${syncId}/stream?token=${encodeURIComponent(token)}`,
-      { withCredentials: true }
-    )
+    const streamUrl = `${API_BASE}/sync-progress/${syncId}/stream?token=${encodeURIComponent(token)}`
+    console.log('[SyncProgress] Stream URL:', streamUrl.replace(/token=[^&]+/, 'token=***'))
+
+    const es = new EventSource(streamUrl, { withCredentials: true })
+
+    // Set connection timeout - if no data received in 10 seconds, likely auth failure
+    connectionTimeoutRef.current = setTimeout(() => {
+      console.error('[SyncProgress] Connection timeout - no data received')
+      setConnectionError('Connection timeout. Backend may not be deployed with latest changes.')
+      es.close()
+    }, 10000)
+
+    // Clear timeout when any event is received
+    const clearConnectionTimeout = () => {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+        connectionTimeoutRef.current = null
+      }
+    }
+
+    es.addEventListener('connected', (event: MessageEvent) => {
+      clearConnectionTimeout()
+      console.log('[SyncProgress] Connected to SSE stream')
+      setConnectionError(null)
+    })
 
     es.addEventListener('current_state', (event: MessageEvent) => {
+      clearConnectionTimeout()
+      console.log('[SyncProgress] Current state:', event.data)
       const data = JSON.parse(event.data)
       setProgress(data)
+      setConnectionError(null)
     })
 
     es.addEventListener('started', (event: MessageEvent) => {
+      clearConnectionTimeout()
+      console.log('[SyncProgress] Started:', event.data)
       const data = JSON.parse(event.data)
       setProgress(data)
+      setConnectionError(null)
     })
 
     es.addEventListener('progress', (event: MessageEvent) => {
+      clearConnectionTimeout()
       const data = JSON.parse(event.data)
       setProgress(data)
     })
 
     es.addEventListener('complete', (event: MessageEvent) => {
+      clearConnectionTimeout()
+      console.log('[SyncProgress] Complete:', event.data)
       const data = JSON.parse(event.data)
       setProgress(data)
 
@@ -138,17 +173,40 @@ export default function SyncProgressModal({
     })
 
     es.addEventListener('error', (event: MessageEvent) => {
-      const data = JSON.parse(event.data)
-      setProgress(data)
+      try {
+        if (event.data) {
+          const data = JSON.parse(event.data)
+          setProgress(data)
+        }
+      } catch (e) {
+        console.error('Failed to parse error event:', e)
+      }
     })
 
-    es.onerror = () => {
-      console.error('SSE connection error')
+    es.onerror = (error) => {
+      console.error('SSE connection error:', error)
+      setProgress({
+        status: 'error',
+        stage: 'Connection failed. Please check your internet connection and try again.',
+        percent_complete: 0,
+        total_items: 0,
+        processed_items: 0,
+        failed_items: 0
+      })
+
+      // Close connection and notify user
+      setTimeout(() => {
+        es.close()
+      }, 3000)
     }
 
     eventSourceRef.current = es
 
     return () => {
+      console.log('[SyncProgress] Cleaning up SSE connection')
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+      }
       es.close()
     }
   }, [syncId, onClose, emailNotify])
@@ -344,7 +402,7 @@ export default function SyncProgressModal({
           }}>
             Syncing {connectorType.charAt(0).toUpperCase() + connectorType.slice(1)}
           </h2>
-          {(progress.status === 'complete' || progress.status === 'error') && (
+          {(progress.status === 'complete' || progress.status === 'error' || connectionError) && (
             <button
               onClick={onClose}
               style={{
@@ -361,6 +419,47 @@ export default function SyncProgressModal({
             </button>
           )}
         </div>
+
+        {/* Connection Error Banner */}
+        {connectionError && (
+          <div style={{
+            marginBottom: '24px',
+            padding: '16px',
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FCA5A5',
+            borderRadius: '8px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '12px'
+            }}>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: '2px' }}>
+                <path fill="#DC2626" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+              </svg>
+              <div>
+                <p style={{
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: '#DC2626',
+                  margin: '0 0 4px 0'
+                }}>
+                  Connection Error
+                </p>
+                <p style={{
+                  fontFamily: '"Work Sans", sans-serif',
+                  fontSize: '13px',
+                  color: '#991B1B',
+                  margin: 0,
+                  lineHeight: '1.5'
+                }}>
+                  {connectionError}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Status Icon */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>

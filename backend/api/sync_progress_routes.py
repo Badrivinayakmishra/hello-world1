@@ -31,13 +31,17 @@ def stream_progress(sync_id: str):
     # Manual auth check for SSE (query param instead of header)
     from services.auth_service import JWTUtils
 
+    print(f"[SSE] Stream request for sync_id: {sync_id}")
+
     token = request.args.get('token')
     if not token:
-        return jsonify({"error": "Missing authorization token"}), 401
+        print(f"[SSE] ERROR: No token provided in query params")
+        return jsonify({"error": "Missing authorization token. Token must be passed as query parameter."}), 401
 
     payload, error = JWTUtils.decode_access_token(token)
     if error:
-        return jsonify({"error": error}), 401
+        print(f"[SSE] ERROR: Token validation failed: {error}")
+        return jsonify({"error": f"Invalid token: {error}"}), 401
 
     # Store user info in Flask g object
     g.user_id = payload.get("sub")
@@ -45,15 +49,31 @@ def stream_progress(sync_id: str):
     g.email = payload.get("email")
     g.role = payload.get("role")
 
+    print(f"[SSE] Authenticated user: {g.email} (tenant: {g.tenant_id})")
+
     service = get_sync_progress_service()
 
     def generate_events():
         """Generator for SSE events"""
+        print(f"[SSE] Starting event generator for {sync_id}")
+
+        # Send immediate connection confirmation
+        yield f"event: connected\n"
+        yield f"data: {json.dumps({'sync_id': sync_id, 'status': 'connected'})}\n\n"
+
         # Create event queue
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        queue = loop.run_until_complete(service.subscribe(sync_id))
+        try:
+            queue = loop.run_until_complete(service.subscribe(sync_id))
+            print(f"[SSE] Subscribed to sync {sync_id}")
+        except Exception as e:
+            print(f"[SSE] ERROR: Failed to subscribe: {e}")
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': f'Failed to subscribe to sync: {str(e)}'})}\n\n"
+            loop.close()
+            return
 
         try:
             # Keep-alive timeout
@@ -65,6 +85,8 @@ def stream_progress(sync_id: str):
                     event = loop.run_until_complete(
                         asyncio.wait_for(queue.get(), timeout=timeout)
                     )
+
+                    print(f"[SSE] Sending event: {event['event']} for {sync_id}")
 
                     # Send event to client
                     yield f"event: {event['event']}\n"
@@ -80,12 +102,15 @@ def stream_progress(sync_id: str):
                     yield ": keep-alive\n\n"
 
         except Exception as e:
-            print(f"[SSE] Error in event stream: {e}")
+            print(f"[SSE] ERROR in event stream: {e}")
+            import traceback
+            traceback.print_exc()
             yield f"event: error\n"
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         finally:
             # Clean up
+            print(f"[SSE] Cleaning up subscription for {sync_id}")
             service.unsubscribe(sync_id, queue)
             loop.close()
 
