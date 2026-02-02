@@ -2267,7 +2267,9 @@ def _run_connector_sync(
                 from connectors.pubmed_connector import PubMedConnector
                 ConnectorClass = PubMedConnector
             elif connector_type == "webscraper":
+                print(f"[Sync] Importing WebScraperConnector...")
                 from connectors.webscraper_connector import WebScraperConnector
+                print(f"[Sync] WebScraperConnector imported successfully")
                 ConnectorClass = WebScraperConnector
             else:
                 sync_progress[progress_key]["status"] = "error"
@@ -2297,10 +2299,14 @@ def _run_connector_sync(
 
             # Run sync
             import asyncio
+            print(f"[Sync] Importing nest_asyncio...")
             import nest_asyncio
+            print(f"[Sync] Applying nest_asyncio...")
             nest_asyncio.apply()  # Allow nested event loops (fixes gevent + asyncio conflict)
+            print(f"[Sync] Creating event loop...")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            print(f"[Sync] Event loop ready, starting sync...")
 
             try:
                 # Check if this is the first sync (no documents exist for this connector)
@@ -2634,15 +2640,21 @@ def _run_connector_sync(
                 loop.close()
 
         except Exception as e:
+            # Log the full error with traceback for debugging
+            import traceback
+            error_msg = str(e)
+            print(f"[Sync] FATAL ERROR during {connector_type} sync: {type(e).__name__}: {error_msg}")
+            traceback.print_exc()
+
             connector.status = ConnectorStatus.ERROR
             connector.last_sync_status = "error"
-            connector.last_sync_error = str(e)
-            connector.error_message = str(e)
+            connector.last_sync_error = error_msg
+            connector.error_message = error_msg
             db.commit()
 
             # Mark failed
             if sync_id:
-                progress_service.complete_sync(sync_id, error_message=str(e))
+                progress_service.complete_sync(sync_id, error_message=error_msg)
 
                 # Send error email
                 from database.models import User
