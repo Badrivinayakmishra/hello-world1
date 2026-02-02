@@ -186,6 +186,8 @@ export default function SyncProgressModal({
     es.onerror = (error) => {
       console.error('SSE connection error:', error)
       setProgress({
+        sync_id: syncId,
+        connector_type: connectorType,
         status: 'error',
         stage: 'Connection failed. Please check your internet connection and try again.',
         percent_complete: 0,
