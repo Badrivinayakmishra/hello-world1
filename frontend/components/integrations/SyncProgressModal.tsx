@@ -147,15 +147,20 @@ export default function SyncProgressModal({
 
     const es = new EventSource(streamUrl, { withCredentials: true })
 
-    // Set connection timeout - if no data received in 10 seconds, likely auth failure
+    let hasReceivedAnyEvent = false
+
+    // Set connection timeout - only if NO events received (even "connected")
     connectionTimeoutRef.current = setTimeout(() => {
-      console.error('[SyncProgress] Connection timeout - no data received')
-      setConnectionError('Connection timeout. Backend may not be deployed with latest changes.')
-      es.close()
-    }, 10000)
+      if (!hasReceivedAnyEvent) {
+        console.error('[SyncProgress] Connection timeout - no events received')
+        setConnectionError('Connection timeout. Check backend deployment.')
+        es.close()
+      }
+    }, 30000) // 30 seconds instead of 10
 
     // Clear timeout when any event is received
     const clearConnectionTimeout = () => {
+      hasReceivedAnyEvent = true
       if (connectionTimeoutRef.current) {
         clearTimeout(connectionTimeoutRef.current)
         connectionTimeoutRef.current = null
@@ -227,21 +232,15 @@ export default function SyncProgressModal({
 
     es.onerror = (error) => {
       console.error('SSE connection error:', error)
-      setProgress({
-        sync_id: syncId,
-        connector_type: connectorType,
-        status: 'error',
-        stage: 'Connection failed. Please check your internet connection and try again.',
-        percent_complete: 0,
-        total_items: 0,
-        processed_items: 0,
-        failed_items: 0
-      })
 
-      // Close connection and notify user
-      setTimeout(() => {
-        es.close()
-      }, 3000)
+      // EventSource automatically reconnects on transient errors
+      // Only show error if connection is actually closed (readyState === 2)
+      if (es.readyState === EventSource.CLOSED) {
+        console.error('[SyncProgress] Connection closed permanently')
+        setConnectionError('Connection lost. Please refresh and try again.')
+      } else {
+        console.log('[SyncProgress] Connection error, will auto-reconnect...')
+      }
     }
 
     eventSourceRef.current = es
@@ -253,7 +252,7 @@ export default function SyncProgressModal({
       }
       es.close()
     }
-  }, [syncId, onClose, emailNotify])
+  }, [syncId]) // Only reconnect if syncId changes (which it shouldn't)
 
   const sendEmailNotification = async () => {
     try {
