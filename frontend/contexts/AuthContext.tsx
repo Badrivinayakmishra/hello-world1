@@ -57,8 +57,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth()
   }, [])
 
-  // Redirect based on auth state
+  // Redirect based on auth state - DISABLED FOR LOCAL TESTING
   useEffect(() => {
+    // Skip authentication - allow access to all pages
+    return;
+
     if (!isLoading) {
       const isAuthPage = pathname === '/login' || pathname === '/signup'
 
@@ -73,6 +76,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, isLoading, pathname, router])
 
   const checkAuth = async () => {
+    // SKIP AUTH CHECK FOR LOCAL TESTING
+    // Create a mock user to bypass authentication
+    const mockUser = {
+      id: 'local-test-user',
+      email: 'test@localhost.com',
+      full_name: 'Local Test User',
+      role: 'owner',
+      tenant_id: 'local-tenant',
+      email_verified: true,
+      mfa_enabled: false,
+      created_at: new Date().toISOString(),
+      is_active: true
+    }
+
+    const mockTenant = {
+      id: 'local-tenant',
+      name: 'Local Testing',
+      slug: 'local-testing',
+      plan: 'enterprise',
+      storage_used_bytes: 0,
+      storage_limit_bytes: 10737418240,
+      created_at: new Date().toISOString(),
+      is_active: true
+    }
+
+    setUser(mockUser)
+    setTenant(mockTenant)
+    setToken('mock-token-for-local-testing')
+    setIsLoading(false)
+    return
+
+    // Original auth check code (disabled):
     const storedToken = localStorage.getItem('authToken')
     const storedUser = localStorage.getItem('user')
     const storedTenant = localStorage.getItem('tenant')

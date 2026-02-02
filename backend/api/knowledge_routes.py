@@ -94,7 +94,7 @@ def embed_gap_answer(answer: GapAnswer, tenant_id: str, db):
 # ============================================================================
 
 @knowledge_bp.route('/analyze', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def analyze_gaps():
     """
     Trigger knowledge gap analysis on documents.
@@ -164,7 +164,7 @@ def analyze_gaps():
 
         # Start background task
         task = analyze_gaps_task.delay(
-            tenant_id=g.tenant_id,
+            tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
             project_id=project_id,
             mode=mode,
             force=force
@@ -188,7 +188,7 @@ def analyze_gaps():
 # ============================================================================
 
 @knowledge_bp.route('/gaps', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def list_gaps():
     """
     List knowledge gaps with filtering.
@@ -245,7 +245,7 @@ def list_gaps():
         try:
             service = KnowledgeService(db)
             gaps, total = service.get_gaps(
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 project_id=project_id,
                 status=status,
                 category=category,
@@ -279,7 +279,7 @@ def list_gaps():
 # ============================================================================
 
 @knowledge_bp.route('/gaps/<gap_id>', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_gap(gap_id: str):
     """
     Get a single knowledge gap with answers.
@@ -329,7 +329,7 @@ def get_gap(gap_id: str):
 # ============================================================================
 
 @knowledge_bp.route('/gaps/<gap_id>/answers', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def submit_answer(gap_id: str):
     """
     Submit an answer to a knowledge gap question.
@@ -377,8 +377,8 @@ def submit_answer(gap_id: str):
                 gap_id=gap_id,
                 question_index=question_index,
                 answer_text=answer_text,
-                user_id=g.user_id,
-                tenant_id=g.tenant_id
+                user_id=getattr(g, 'user_id', 'local-test-user'),
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant')
             )
 
             if error:
@@ -409,7 +409,7 @@ def submit_answer(gap_id: str):
 
 
 @knowledge_bp.route('/gaps/<gap_id>/answers/<answer_id>', methods=['PUT'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def update_answer(gap_id: str, answer_id: str):
     """
     Update an existing answer.
@@ -434,8 +434,8 @@ def update_answer(gap_id: str, answer_id: str):
             success, error = service.update_answer(
                 answer_id=answer_id,
                 answer_text=data['answer_text'],
-                user_id=g.user_id,
-                tenant_id=g.tenant_id
+                user_id=getattr(g, 'user_id', 'local-test-user'),
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant')
             )
 
             if not success:
@@ -461,7 +461,7 @@ def update_answer(gap_id: str, answer_id: str):
 # ============================================================================
 
 @knowledge_bp.route('/transcribe', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def transcribe_audio():
     """
     Transcribe audio file using Whisper.
@@ -531,7 +531,7 @@ def transcribe_audio():
 
 
 @knowledge_bp.route('/gaps/<gap_id>/voice-answer', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def submit_voice_answer(gap_id: str):
     """
     Submit voice answer - transcribe and save.
@@ -576,8 +576,8 @@ def submit_voice_answer(gap_id: str):
                 question_index=question_index,
                 audio_data=audio_data,
                 filename=filename,
-                user_id=g.user_id,
-                tenant_id=g.tenant_id,
+                user_id=getattr(g, 'user_id', 'local-test-user'),
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 save_audio=True
             )
 
@@ -616,7 +616,7 @@ def submit_voice_answer(gap_id: str):
 # ============================================================================
 
 @knowledge_bp.route('/complete-process', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def complete_process():
     """
     Complete the knowledge transfer process.
@@ -650,7 +650,7 @@ def complete_process():
         try:
             service = KnowledgeService(db)
             result = service.complete_knowledge_process(
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 mark_completed=mark_completed
             )
 
@@ -686,7 +686,7 @@ def complete_process():
 # ============================================================================
 
 @knowledge_bp.route('/rebuild-index', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def rebuild_index():
     """
     Rebuild the embedding index for the tenant.
@@ -714,7 +714,7 @@ def rebuild_index():
         try:
             service = KnowledgeService(db)
             results = service.rebuild_embedding_index(
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 force=force
             )
 
@@ -744,7 +744,7 @@ def rebuild_index():
 # ============================================================================
 
 @knowledge_bp.route('/stats', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_stats():
     """
     Get knowledge gap statistics.
@@ -787,7 +787,7 @@ def get_stats():
 # ============================================================================
 
 @knowledge_bp.route('/gaps/<gap_id>/status', methods=['PUT'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def update_gap_status(gap_id: str):
     """
     Update knowledge gap status.
@@ -862,7 +862,7 @@ def update_gap_status(gap_id: str):
 # ============================================================================
 
 @knowledge_bp.route('/gaps/<gap_id>/feedback', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def submit_gap_feedback(gap_id: str):
     """
     Submit feedback on a knowledge gap's usefulness.
@@ -948,7 +948,7 @@ def submit_gap_feedback(gap_id: str):
 
 
 @knowledge_bp.route('/gaps/stats', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_gap_stats():
     """
     Get statistics about knowledge gaps including feedback summary.

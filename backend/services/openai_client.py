@@ -57,11 +57,15 @@ class OpenAIClientWrapper:
 
     def create_embedding(self, text, dimensions=1536):
         """Create embeddings"""
-        return self.client.embeddings.create(
-            model=self.embedding_model,
-            input=text,
-            dimensions=dimensions
-        )
+        params = {
+            "model": self.embedding_model,
+            "input": text
+        }
+        # Only add dimensions parameter for regular OpenAI (not Azure)
+        if not self.use_azure:
+            params["dimensions"] = dimensions
+
+        return self.client.embeddings.create(**params)
 
     def get_chat_model(self):
         """Get the chat model name"""

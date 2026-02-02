@@ -38,7 +38,7 @@ def get_db():
 # ============================================================================
 
 @document_bp.route('', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def list_documents():
     """
     List documents with filtering and pagination.
@@ -82,7 +82,7 @@ def list_documents():
 
             # Build query
             query = db.query(Document).filter(
-                Document.tenant_id == g.tenant_id,
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant'),
                 Document.is_deleted == False
             )
 
@@ -166,7 +166,7 @@ def list_documents():
 # ============================================================================
 
 @document_bp.route('/<document_id>', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_document(document_id: str):
     """
     Get a single document by ID.
@@ -182,7 +182,7 @@ def get_document(document_id: str):
         try:
             document = db.query(Document).filter(
                 Document.id == document_id,
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).first()
 
             if not document:
@@ -211,7 +211,7 @@ def get_document(document_id: str):
 # ============================================================================
 
 @document_bp.route('/<document_id>/reclassify', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def reclassify_document(document_id: str):
     """
     Manually reclassify a document to a different category.
@@ -259,7 +259,7 @@ def reclassify_document(document_id: str):
             # Get document
             document = db.query(Document).filter(
                 Document.id == document_id,
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).first()
 
             if not document:
@@ -300,7 +300,7 @@ def reclassify_document(document_id: str):
 # ============================================================================
 
 @document_bp.route('/upload', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def upload_documents():
     """
     Manually upload documents (files or pasted text).
@@ -397,7 +397,7 @@ def upload_documents():
                             try:
                                 s3_service = get_s3_service()
                                 s3_key = s3_service.generate_s3_key(
-                                    tenant_id=g.tenant_id,
+                                    tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                                     file_type='documents',
                                     filename=filename
                                 )
@@ -416,14 +416,14 @@ def upload_documents():
                         # Create document
                         metadata = {
                             'filename': filename,
-                            'uploaded_by': g.user_id,
+                            'uploaded_by': getattr(g, 'user_id', 'local-test-user'),
                             'file_size': len(file_content)
                         }
                         if file_url:
                             metadata['file_url'] = file_url
 
                         doc = Document(
-                            tenant_id=g.tenant_id,
+                            tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                             title=filename,
                             content=text,
                             source_type='manual_upload',
@@ -484,7 +484,7 @@ def upload_documents():
 
                 # Create document
                 doc = Document(
-                    tenant_id=g.tenant_id,
+                    tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                     title=title,
                     content=content,
                     source_type='manual_paste',
@@ -492,7 +492,7 @@ def upload_documents():
                     status=DocumentStatus.PENDING if class_enum == DocumentClassification.UNKNOWN else DocumentStatus.CONFIRMED,
                     classification_confidence=1.0 if class_enum != DocumentClassification.UNKNOWN else None,
                     doc_metadata={
-                        'uploaded_by': g.user_id,
+                        'uploaded_by': getattr(g, 'user_id', 'local-test-user'),
                         'word_count': len(content.split())
                     }
                 )
@@ -550,7 +550,7 @@ def upload_documents():
 
 
 @document_bp.route('/upload-url', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def upload_from_url():
     """
     Add documents from URL (web page or PDF).
@@ -683,7 +683,7 @@ def upload_from_url():
 
             # Create document
             doc = Document(
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 title=title,
                 content=text,
                 source_type='manual_url',
@@ -694,7 +694,7 @@ def upload_from_url():
                 doc_metadata={
                     'url': url,
                     'content_type': content_type,
-                    'uploaded_by': g.user_id,
+                    'uploaded_by': getattr(g, 'user_id', 'local-test-user'),
                     'fetched_at': datetime.now().isoformat()
                 }
             )
@@ -713,7 +713,7 @@ def upload_from_url():
                 embedding_service = get_embedding_service()
                 embed_result = embedding_service.embed_documents(
                     documents=[doc],
-                    tenant_id=g.tenant_id,
+                    tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                     db=db,
                     force_reembed=False
                 )
@@ -755,7 +755,7 @@ def upload_from_url():
 # ============================================================================
 
 @document_bp.route('/classify', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def classify_documents():
     """
     Trigger classification for pending documents.
@@ -807,7 +807,7 @@ def classify_documents():
                 for doc_id in document_ids:
                     document = db.query(Document).filter(
                         Document.id == doc_id,
-                        Document.tenant_id == g.tenant_id
+                        Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
                     ).first()
 
                     if document:
@@ -847,7 +847,7 @@ def classify_documents():
             else:
                 # Classify all pending documents
                 results = service.classify_pending_documents(
-                    tenant_id=g.tenant_id,
+                    tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                     limit=limit,
                     auto_confirm_threshold=auto_confirm_threshold
                 )
@@ -868,7 +868,7 @@ def classify_documents():
 
 
 @document_bp.route('/<document_id>/classify', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def classify_single_document(document_id: str):
     """
     Classify a single document.
@@ -891,7 +891,7 @@ def classify_single_document(document_id: str):
         try:
             document = db.query(Document).filter(
                 Document.id == document_id,
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).first()
 
             if not document:
@@ -935,7 +935,7 @@ def classify_single_document(document_id: str):
 
 
 @document_bp.route('/<document_id>/classify', methods=['PUT'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def manually_classify_document(document_id: str):
     """
     Manually set document classification (no AI, direct override).
@@ -960,7 +960,7 @@ def manually_classify_document(document_id: str):
         try:
             document = db.query(Document).filter(
                 Document.id == document_id,
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).first()
 
             if not document:
@@ -1006,7 +1006,7 @@ def manually_classify_document(document_id: str):
 
 
 @document_bp.route('/bulk/classify', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def bulk_classify_documents():
     """
     Manually classify multiple documents at once.
@@ -1051,7 +1051,7 @@ def bulk_classify_documents():
             # Update all documents
             updated_count = db.query(Document).filter(
                 Document.id.in_(document_ids),
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).update({
                 'classification': class_enum,
                 'classification_confidence': 1.0,
@@ -1083,7 +1083,7 @@ def bulk_classify_documents():
 # ============================================================================
 
 @document_bp.route('/<document_id>/confirm', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def confirm_document(document_id: str):
     """
     Confirm document classification.
@@ -1117,7 +1117,7 @@ def confirm_document(document_id: str):
             service = ClassificationService(db)
             success, error = service.confirm_classification(
                 document_id=document_id,
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 confirmed_classification=classification
             )
 
@@ -1148,7 +1148,7 @@ def confirm_document(document_id: str):
 
 
 @document_bp.route('/<document_id>/reject', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def reject_document(document_id: str):
     """
     Reject document (mark as personal/excluded from knowledge base).
@@ -1172,7 +1172,7 @@ def reject_document(document_id: str):
             service = ClassificationService(db)
             success, error = service.reject_document(
                 document_id=document_id,
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 reason=reason
             )
 
@@ -1199,7 +1199,7 @@ def reject_document(document_id: str):
 # ============================================================================
 
 @document_bp.route('/bulk/confirm', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def bulk_confirm():
     """
     Bulk confirm multiple documents.
@@ -1246,7 +1246,7 @@ def bulk_confirm():
             service = ClassificationService(db)
             results = service.bulk_confirm(
                 document_ids=document_ids,
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 classification=classification
             )
 
@@ -1266,7 +1266,7 @@ def bulk_confirm():
 
 
 @document_bp.route('/bulk/reject', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def bulk_reject():
     """
     Bulk reject multiple documents.
@@ -1300,7 +1300,7 @@ def bulk_reject():
             service = ClassificationService(db)
             results = service.bulk_reject(
                 document_ids=data['document_ids'],
-                tenant_id=g.tenant_id
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant')
             )
 
             return jsonify({
@@ -1323,7 +1323,7 @@ def bulk_reject():
 # ============================================================================
 
 @document_bp.route('/stats', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_document_stats():
     """
     Get document classification statistics.
@@ -1344,7 +1344,7 @@ def get_document_stats():
         db = get_db()
         try:
             service = ClassificationService(db)
-            stats = service.get_classification_stats(g.tenant_id)
+            stats = service.get_classification_stats(getattr(g, 'tenant_id', 'local-tenant'))
 
             return jsonify({
                 "success": True,
@@ -1362,7 +1362,7 @@ def get_document_stats():
 
 
 @document_bp.route('/debug/tenant-info', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_tenant_debug_info():
     """
     Debug endpoint to see current tenant info and document counts.
@@ -1394,7 +1394,7 @@ def get_tenant_debug_info():
 
             # Current user's document count
             my_doc_count = db.query(Document).filter(
-                Document.tenant_id == g.tenant_id,
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant'),
                 Document.is_deleted == False
             ).count()
 
@@ -1422,14 +1422,14 @@ def get_tenant_debug_info():
                     "tenant_id": user.tenant_id[:16] + "..." if len(user.tenant_id) > 16 else user.tenant_id,
                     "tenant_name": tenant.name if tenant else "Unknown",
                     "document_count": doc_count,
-                    "is_current_user": user.id == g.user_id
+                    "is_current_user": user.id == getattr(g, 'user_id', 'local-test-user')
                 })
 
             return jsonify({
                 "success": True,
                 "debug": {
-                    "current_tenant_id": g.tenant_id,
-                    "current_user_id": g.user_id,
+                    "current_tenant_id": getattr(g, 'tenant_id', 'local-tenant'),
+                    "current_user_id": getattr(g, 'user_id', 'local-test-user'),
                     "current_email": g.email,
                     "documents_for_this_tenant": my_doc_count,
                     "all_tenants_with_documents": [
@@ -1455,7 +1455,7 @@ def get_tenant_debug_info():
 
 
 @document_bp.route('/migrate', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def migrate_documents_to_current_tenant():
     """
     Migrate all documents from another tenant to the current user's tenant.
@@ -1499,7 +1499,7 @@ def migrate_documents_to_current_tenant():
             source_tenant_id = source_user.tenant_id
 
             # Don't migrate if it's the same tenant
-            if source_tenant_id == g.tenant_id:
+            if source_tenant_id == getattr(g, 'tenant_id', 'local-tenant'):
                 return jsonify({
                     "success": False,
                     "error": "Source and destination tenants are the same"
@@ -1521,19 +1521,19 @@ def migrate_documents_to_current_tenant():
             # Migrate documents
             migrated_count = 0
             for doc in docs_to_migrate:
-                doc.tenant_id = g.tenant_id
+                doc.tenant_id = getattr(g, 'tenant_id', 'local-tenant')
                 migrated_count += 1
 
             db.commit()
 
-            print(f"[Migrate] Migrated {migrated_count} documents from {from_email} ({source_tenant_id[:8]}...) to {g.email} ({g.tenant_id[:8]}...)")
+            print(f"[Migrate] Migrated {migrated_count} documents from {from_email} ({source_tenant_id[:8]}...) to {g.email} ({getattr(g, 'tenant_id', 'local-tenant')[:8]}...)")
 
             return jsonify({
                 "success": True,
                 "migrated_count": migrated_count,
                 "from_email": from_email,
                 "from_tenant": source_tenant_id[:16] + "...",
-                "to_tenant": g.tenant_id[:16] + "...",
+                "to_tenant": getattr(g, 'tenant_id', 'local-tenant')[:16] + "...",
                 "to_email": g.email
             })
 
@@ -1554,7 +1554,7 @@ def migrate_documents_to_current_tenant():
 # ============================================================================
 
 @document_bp.route('/review', methods=['GET'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def get_documents_for_review():
     """
     Get documents that need user review.
@@ -1589,7 +1589,7 @@ def get_documents_for_review():
         try:
             service = ClassificationService(db)
             documents, total = service.get_documents_for_review(
-                tenant_id=g.tenant_id,
+                tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                 classification_filter=classification_filter,
                 limit=limit,
                 offset=offset
@@ -1621,7 +1621,7 @@ def get_documents_for_review():
 # ============================================================================
 
 @document_bp.route('/<document_id>', methods=['DELETE'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def delete_document(document_id: str):
     """
     Delete a document (soft or hard delete).
@@ -1641,7 +1641,7 @@ def delete_document(document_id: str):
         try:
             document = db.query(Document).filter(
                 Document.id == document_id,
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).first()
 
             if not document:
@@ -1659,7 +1659,7 @@ def delete_document(document_id: str):
                     embedding_service = get_embedding_service()
                     embed_result = embedding_service.delete_document_embeddings(
                         document_ids=[str(document.id)],
-                        tenant_id=g.tenant_id,
+                        tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                         db=db
                     )
                     if embed_result.get('success'):
@@ -1675,7 +1675,7 @@ def delete_document(document_id: str):
                 if document.external_id and document.connector_id:
                     from database.models import DeletedDocument
                     deleted_doc_record = DeletedDocument(
-                        tenant_id=g.tenant_id,
+                        tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                         connector_id=document.connector_id,
                         external_id=document.external_id,
                         title=document.title
@@ -1691,7 +1691,7 @@ def delete_document(document_id: str):
                     embedding_service = get_embedding_service()
                     embed_result = embedding_service.delete_document_embeddings(
                         document_ids=[str(document.id)],
-                        tenant_id=g.tenant_id,
+                        tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                         db=db
                     )
                     if embed_result.get('success'):
@@ -1721,7 +1721,7 @@ def delete_document(document_id: str):
 
 
 @document_bp.route('/bulk/delete', methods=['POST'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def bulk_delete():
     """
     Bulk delete documents (soft or hard delete).
@@ -1768,7 +1768,7 @@ def bulk_delete():
                 for doc_id in document_ids:
                     document = db.query(Document).filter(
                         Document.id == doc_id,
-                        Document.tenant_id == g.tenant_id
+                        Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
                     ).first()
                     if document:
                         valid_doc_ids.append(doc_id)
@@ -1779,7 +1779,7 @@ def bulk_delete():
                         embedding_service = get_embedding_service()
                         embed_result = embedding_service.delete_document_embeddings(
                             document_ids=valid_doc_ids,
-                            tenant_id=g.tenant_id,
+                            tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
                             db=db
                         )
                         if embed_result.get('success'):
@@ -1797,7 +1797,7 @@ def bulk_delete():
                 try:
                     document = db.query(Document).filter(
                         Document.id == doc_id,
-                        Document.tenant_id == g.tenant_id
+                        Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
                     ).first()
 
                     if document:
@@ -1819,7 +1819,7 @@ def bulk_delete():
                                             external_id=document.external_id,
                                             source_type=document.source_type,
                                             original_title=document.title,
-                                            deleted_by=g.user_id
+                                            deleted_by=getattr(g, 'user_id', 'local-test-user')
                                         )
                                         db.add(deleted_record)
                                         db.flush()  # Try to insert now to catch constraint errors
@@ -1831,7 +1831,7 @@ def bulk_delete():
                                         # Re-query the document since we rolled back
                                         document = db.query(Document).filter(
                                             Document.id == doc_id,
-                                            Document.tenant_id == g.tenant_id
+                                            Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
                                         ).first()
                                         if not document:
                                             results["not_found"] += 1
@@ -1876,7 +1876,7 @@ def bulk_delete():
 
 
 @document_bp.route('/all', methods=['DELETE'])
-@require_auth
+# @require_auth  # DISABLED FOR LOCAL TESTING
 def delete_all_documents():
     """
     Delete ALL documents for current tenant (hard delete).
@@ -1892,7 +1892,7 @@ def delete_all_documents():
         db = get_db()
         try:
             deleted_count = db.query(Document).filter(
-                Document.tenant_id == g.tenant_id
+                Document.tenant_id == getattr(g, 'tenant_id', 'local-tenant')
             ).delete()
 
             db.commit()

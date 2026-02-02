@@ -5,6 +5,7 @@ import Sidebar from '../shared/Sidebar'
 import Image from 'next/image'
 import axios from 'axios'
 import SyncProgressModal from './SyncProgressModal'
+import EmailForwardingCard from './EmailForwardingCard'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -2234,19 +2235,19 @@ const IntegrationDetailsModal = ({
 
 const integrations: Integration[] = [
   {
+    id: 'email-forwarding',
+    name: 'Email Forwarding',
+    logo: '/gmail.png',
+    description: 'Forward emails to beatatucla@gmail.com to import them into your knowledge base.',
+    category: 'Conversations',
+    connected: false,
+    isOAuth: false
+  },
+  {
     id: 'slack',
     name: 'Slack',
     logo: '/slack.png',
     description: 'Sync messages from all your Slack channels into your knowledge base.',
-    category: 'Conversations',
-    connected: false,
-    isOAuth: true  // Use OAuth flow like Gmail and Box
-  },
-  {
-    id: 'gmail',
-    name: 'Gmail',
-    logo: '/gmail.png',
-    description: 'Connect your Gmail to import emails into your knowledge base.',
     category: 'Conversations',
     connected: false,
     isOAuth: true
@@ -2571,6 +2572,9 @@ export default function Integrations() {
   const [webscraperMaxDepth, setWebscraperMaxDepth] = useState(3)
   const [webscraperMaxPages, setWebscraperMaxPages] = useState(50)
   const [isConfiguringWebscraper, setIsConfiguringWebscraper] = useState(false)
+
+  // Email Forwarding modal state
+  const [showEmailForwardingModal, setShowEmailForwardingModal] = useState(false)
 
   // Load localStorage state after hydration to avoid mismatch
   useEffect(() => {
@@ -3134,6 +3138,16 @@ export default function Integrations() {
   const toggleConnect = async (id: string) => {
     const integration = integrationsState.find(i => i.id === id)
 
+    // Handle Email Forwarding
+    if (id === 'email-forwarding') {
+      if (integration?.connected) {
+        await disconnectIntegration(id)
+      } else {
+        setShowEmailForwardingModal(true)
+      }
+      return
+    }
+
     // Handle PubMed configuration
     if (id === 'pubmed') {
       if (integration?.connected) {
@@ -3366,6 +3380,55 @@ export default function Integrations() {
         isLoading={isConfiguringWebscraper}
         existingUrl={webscraperUrl}
       />
+
+      {/* Email Forwarding Modal */}
+      {showEmailForwardingModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => setShowEmailForwardingModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFF3E4',
+              borderRadius: '16px',
+              padding: '32px',
+              maxWidth: '600px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Email Forwarding</h2>
+              <button
+                onClick={() => setShowEmailForwardingModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#71717A'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <EmailForwardingCard />
+          </div>
+        </div>
+      )}
 
       {/* Slack Channel Selection Modal */}
       <ChannelSelectionModal

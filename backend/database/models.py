@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from enum import Enum as PyEnum
+from pathlib import Path
 
 from sqlalchemy import (
     create_engine, Column, String, Text, DateTime, Boolean, Integer,
