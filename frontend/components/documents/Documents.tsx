@@ -710,20 +710,15 @@ export default function Documents() {
           onClick={() => router.push('/')}
           style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
         >
-          <div style={{
-            width: '36px',
-            height: '36px',
-            backgroundColor: colors.primary,
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: '14px',
-          }}>
-            2B
-          </div>
+          <img
+            src="/owl.png"
+            alt="Second Brain Logo"
+            style={{
+              width: '36px',
+              height: '36px',
+              objectFit: 'contain',
+            }}
+          />
           <span style={{
             fontSize: '18px',
             fontWeight: 700,
