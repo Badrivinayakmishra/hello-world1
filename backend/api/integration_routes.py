@@ -2383,6 +2383,38 @@ def _run_connector_sync(
 
                 print(f"[Sync] Found {original_count} docs, skipping {original_count - len(documents)} (deleted or existing), processing {len(documents)}")
 
+                # Handle case where all documents already exist
+                if not documents and original_count > 0:
+                    print(f"[Sync] All {original_count} documents already exist and are embedded. Skipping sync.")
+                    if sync_id:
+                        progress_service.update_progress(
+                            sync_id,
+                            status='complete',
+                            stage=f'All {original_count} documents already synced. No new content to process.',
+                            total_items=original_count,
+                            processed_items=original_count
+                        )
+                        progress_service.complete_sync(sync_id)
+
+                    sync_progress[progress_key]["status"] = "completed"
+                    sync_progress[progress_key]["progress"] = 100
+                    sync_progress[progress_key]["message"] = f"All {original_count} documents already synced"
+                    save_sync_state({
+                        "connector_type": connector_type,
+                        "connector_id": connector_id,
+                        "status": "completed",
+                        "message": f"All {original_count} documents already synced"
+                    })
+
+                    return jsonify({
+                        "success": True,
+                        "message": f"All {original_count} documents already synced. No new content to process.",
+                        "sync_id": sync_id,
+                        "documents_found": original_count,
+                        "documents_new": 0,
+                        "documents_skipped": original_count
+                    }), 200
+
                 # Save documents to database with progress updates
                 total_docs = len(documents) if documents else 1
                 for i, doc in enumerate(documents):
