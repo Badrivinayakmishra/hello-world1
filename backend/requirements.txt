@@ -62,10 +62,10 @@ boto3==1.34.19
 
 # Utilities
 python-dotenv>=1.0.0  # crawl4ai needs 1.0.1
-requests==2.31.0
-beautifulsoup4==4.12.3
+requests>=2.31.0  # crawl4ai needs 2.32.3
+beautifulsoup4>=4.12.3
 httpx>=0.26.0  # crawl4ai needs 0.27.2
-python-dateutil==2.8.2
+python-dateutil>=2.8.2
 
 # Background Job Processing
 celery==5.3.4
