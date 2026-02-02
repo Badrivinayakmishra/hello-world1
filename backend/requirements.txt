@@ -23,12 +23,12 @@ llama-parse==0.4.0
 llama-index-core==0.10.43  # Pinned for compatibility with protobuf 3.20.3
 
 # Data Processing
-pandas>=2.2.0  # 2.2+ supports numpy 2.x
-numpy>=2.0.0  # Required by crawl4ai, spaCy 3.8+ supports this
+pandas==2.1.4
+numpy==1.26.3
 
 # Content Generation
 python-pptx==0.6.23
-Pillow>=10.2.0  # crawl4ai needs 10.4.0
+Pillow==10.2.0
 
 # Office Files
 openpyxl==3.1.2
@@ -61,20 +61,20 @@ azure-cognitiveservices-speech==1.35.0
 boto3==1.34.19
 
 # Utilities
-python-dotenv>=1.0.0  # crawl4ai needs 1.0.1
-requests>=2.31.0  # crawl4ai needs 2.32.3
-beautifulsoup4>=4.12.3
-httpx>=0.26.0  # crawl4ai needs 0.27.2
-python-dateutil>=2.8.2
+python-dotenv==1.0.0
+requests==2.31.0
+beautifulsoup4==4.12.3
+httpx==0.26.0
+python-dateutil==2.8.2
 
 # Background Job Processing
 celery==5.3.4
 redis==5.0.1
 kombu==5.3.4
 
-# NLP - spaCy 3.8+ supports numpy 2.x
-spacy>=3.8.0
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# NLP
+spacy==3.7.2
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
 
 # ============================================================================
 # OPTIONAL: Enhanced Web Scraper Dependencies
@@ -97,6 +97,6 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0
 # Note: JavaScript rendering adds 3-5x overhead. Only enable if needed.
 # ============================================================================
 
-# Crawl4AI - LLM-friendly web crawler with JS rendering
-# https://github.com/unclecode/crawl4ai
-crawl4ai>=0.3.0
+# Playwright - Browser automation for JS rendering
+# No crawl4ai dependency hell - pure playwright
+playwright>=1.40.0
