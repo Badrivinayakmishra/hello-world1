@@ -41,57 +41,32 @@ PLAYWRIGHT_BROWSERS_INSTALLED = False
 PLAYWRIGHT_BROWSER_PATH = None
 if PLAYWRIGHT_AVAILABLE:
     try:
-        import subprocess
-        import shutil
         import glob
 
-        # Check for Playwright managed chromium directories (various structures)
-        possible_patterns = [
-            # Newer Playwright versions - directory-based check
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*"),
-            "/root/.cache/ms-playwright/chromium-*",
-            # Older structure with chrome-linux
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-            "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
-            # System chromium
-            "/usr/bin/chromium",
-            "/usr/bin/chromium-browser",
-            "/usr/bin/google-chrome",
+        # Check for Playwright managed chromium directories
+        cache_paths = [
+            os.path.expanduser("~/.cache/ms-playwright/"),
+            "/root/.cache/ms-playwright/"
         ]
 
-        # Check for browser executable or directory
-        for pattern in possible_patterns:
-            matches = glob.glob(pattern)
-            if matches:
-                PLAYWRIGHT_BROWSER_PATH = matches[0]
-                # For directory matches, mark as installed if directory exists
-                if os.path.isdir(PLAYWRIGHT_BROWSER_PATH) or os.path.isfile(PLAYWRIGHT_BROWSER_PATH):
-                    PLAYWRIGHT_BROWSERS_INSTALLED = True
-                    print(f"[WebScraper] Found Chromium at: {PLAYWRIGHT_BROWSER_PATH}")
-                    break
+        for cache_path in cache_paths:
+            if os.path.exists(cache_path):
+                try:
+                    contents = os.listdir(cache_path)
+                    # If we find chromium directory, mark as installed
+                    for item in contents:
+                        if item.startswith('chromium'):
+                            PLAYWRIGHT_BROWSERS_INSTALLED = True
+                            PLAYWRIGHT_BROWSER_PATH = os.path.join(cache_path, item)
+                            print(f"[WebScraper] Found Chromium at: {PLAYWRIGHT_BROWSER_PATH}")
+                            break
+                    if PLAYWRIGHT_BROWSERS_INSTALLED:
+                        break
+                except Exception as e:
+                    print(f"[WebScraper] Could not list cache {cache_path}: {e}")
 
         if not PLAYWRIGHT_BROWSERS_INSTALLED:
-            print("[WebScraper] WARNING: Playwright browsers not found in expected paths")
-            # Check cache contents for debugging
-            cache_paths = [
-                os.path.expanduser("~/.cache/ms-playwright/"),
-                "/root/.cache/ms-playwright/"
-            ]
-            for cache_path in cache_paths:
-                if os.path.exists(cache_path):
-                    try:
-                        contents = os.listdir(cache_path)
-                        print(f"[WebScraper] Cache at {cache_path}: {contents}")
-                        # If we find chromium directory, mark as installed
-                        if any(c.startswith('chromium') for c in contents):
-                            PLAYWRIGHT_BROWSERS_INSTALLED = True
-                            PLAYWRIGHT_BROWSER_PATH = cache_path
-                            print(f"[WebScraper] Chromium found in cache directory")
-                            break
-                    except Exception as e:
-                        print(f"[WebScraper] Could not list cache: {e}")
-            except Exception as e:
-                print(f"[WebScraper] Could not check Playwright installation: {e}")
+            print("[WebScraper] WARNING: Playwright browsers not found. Will attempt to use system browser.")
     except Exception as e:
         print(f"[WebScraper] Error checking Playwright browsers: {e}")
 
