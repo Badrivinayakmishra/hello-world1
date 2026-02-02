@@ -71,9 +71,9 @@ export default function ChatInterface() {
   // Auth headers for API calls
   const getAuthHeaders = () => ({
     'Authorization': token ? `Bearer ${token}` : '',
-    'X-Tenant': tenant?.id || '',
     'Content-Type': 'application/json'
   })
+  // Note: X-Tenant removed - tenant ID extracted from JWT on backend
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

@@ -79,13 +79,16 @@ def stream_progress(sync_id: str):
         try:
             current_state = service.get_progress(sync_id)
             if current_state:
-                print(f"[SSE] Sending current state: {current_state.status}")
+                # current_state is already a dict
+                print(f"[SSE] Sending current state: {current_state.get('status', 'unknown')}")
                 yield f"event: current_state\n"
-                yield f"data: {json.dumps(current_state.to_dict())}\n\n"
+                yield f"data: {json.dumps(current_state)}\n\n"
             else:
                 print(f"[SSE] No current state found for {sync_id}")
         except Exception as e:
             print(f"[SSE] ERROR getting current state: {e}")
+            import traceback
+            traceback.print_exc()
 
         try:
             # Keep-alive timeout

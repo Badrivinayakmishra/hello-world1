@@ -257,11 +257,11 @@ export function useAuth() {
 
 // Hook to get auth headers for API calls
 export function useAuthHeaders() {
-  const { token, tenant } = useAuth()
+  const { token } = useAuth()
 
   return {
     'Authorization': token ? `Bearer ${token}` : '',
-    'X-Tenant': tenant?.id || '',
     'Content-Type': 'application/json'
   }
+  // Note: X-Tenant removed - tenant ID comes from JWT on backend
 }
