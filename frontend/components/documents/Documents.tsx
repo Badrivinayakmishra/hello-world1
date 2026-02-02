@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import Sidebar from '../shared/Sidebar'
+import React, { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import axios from 'axios'
 import { useAuth, useAuthHeaders } from '@/contexts/AuthContext'
@@ -10,20 +9,38 @@ import DocumentViewer from './DocumentViewer'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003') + '/api'
 
-// Notion-style typography using Inter
-const notionFont = 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif'
+// Modern Design System
+const colors = {
+  // Primary
+  primary: '#2563EB',
+  primaryHover: '#1D4ED8',
+  primaryLight: '#EFF6FF',
 
-// Notion minimal color palette - white, greys, and black only
-const notionColors = {
   // Backgrounds
-  white: '#FFFFFF',
-  lightGrey: '#F7F6F3',      // Sidebar, cards
-  mediumGrey: '#E3E2E0',     // Borders, dividers
+  pageBg: '#F8FAFC',
+  cardBg: '#FFFFFF',
 
   // Text
-  black: '#37352F',          // Primary text, buttons
-  darkGrey: '#787774',       // Secondary text
-  lightText: '#9B9A97'       // Tertiary text
+  textPrimary: '#111827',
+  textSecondary: '#6B7280',
+  textMuted: '#9CA3AF',
+
+  // Borders & Dividers
+  border: '#E5E7EB',
+  borderLight: '#F3F4F6',
+
+  // Status Colors
+  statusGreen: '#22C55E',
+  statusOrange: '#F59E0B',
+  statusRed: '#EF4444',
+  statusBlue: '#3B82F6',
+  statusPurple: '#8B5CF6',
+}
+
+const shadows = {
+  sm: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+  md: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+  lg: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
 }
 
 interface Document {
@@ -42,6 +59,7 @@ interface Document {
   url?: string
   summary?: string
   quickSummary?: string
+  score?: number
 }
 
 interface FullDocument {
@@ -59,8 +77,17 @@ interface FullDocument {
   metadata?: any
 }
 
+// Status mapping for visual indicators
+const getStatusInfo = (classification?: string, sourceType?: string) => {
+  if (classification === 'work') return { label: 'Active', color: colors.statusGreen }
+  if (classification === 'personal') return { label: 'Personal', color: colors.statusOrange }
+  if (classification === 'spam') return { label: 'Archived', color: colors.statusRed }
+  if (sourceType === 'webscraper') return { label: 'Scraped', color: colors.statusBlue }
+  if (sourceType === 'github') return { label: 'Code', color: colors.statusPurple }
+  return { label: 'Pending', color: colors.textMuted }
+}
+
 export default function Documents() {
-  const [activeItem, setActiveItem] = useState('Documents')
   const [documents, setDocuments] = useState<Document[]>([])
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([])
   const [activeCategory, setActiveCategory] = useState<string>('All Items')
@@ -70,11 +97,16 @@ export default function Documents() {
   const [loadingDocument, setLoadingDocument] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [displayLimit, setDisplayLimit] = useState(50)
+  const [sortField, setSortField] = useState<string>('created')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+  const [activeFilters, setActiveFilters] = useState<string[]>([])
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const authHeaders = useAuthHeaders()
-  const { token } = useAuth()
+  const { token, user, logout } = useAuth()
   const router = useRouter()
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (token) {
@@ -84,134 +116,83 @@ export default function Documents() {
 
   useEffect(() => {
     filterDocuments()
-  }, [documents, activeCategory, searchQuery])
+  }, [documents, activeCategory, searchQuery, sortField, sortDirection])
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const loadDocuments = async () => {
     try {
-      console.log('Loading documents from API...')
       const response = await axios.get(`${API_BASE}/documents?limit=100`, {
         headers: authHeaders
       })
 
-      console.log('API Response:', response.data)
-
       if (response.data.success) {
         const apiDocs = response.data.documents
-        console.log(`Loaded ${apiDocs.length} documents from API`)
-
-        // Debug: Check first document's fields
-        if (apiDocs.length > 0) {
-          console.log('First document fields:', Object.keys(apiDocs[0]))
-          console.log('First document summary:', apiDocs[0].summary)
-          console.log('First document structured_summary:', apiDocs[0].structured_summary)
-        }
-
         const docs: Document[] = apiDocs.map((doc: any, index: number) => {
-          let category: 'Meetings' | 'Documents' | 'Personal Items' | 'Other Items' | 'Web Scraper' | 'Code' = 'Other Items'
+          let category: Document['category'] = 'Other Items'
           const title = doc.title?.toLowerCase() || ''
           const sourceType = doc.source_type?.toLowerCase() || ''
           const classification = doc.classification?.toLowerCase() || ''
           const folderPath = doc.metadata?.folder_path?.toLowerCase() || ''
 
-          console.log(`Doc ${index}: ${doc.title} | source_type: "${sourceType}" | classification: ${classification}`)
-
-          // Web Scraper documents (HIGHEST PRIORITY - check first)
-          if (sourceType === 'webscraper' ||
-              sourceType === 'webscraper_enhanced' ||
-              sourceType === 'web_scraper' ||
-              sourceType?.toLowerCase().includes('webscraper') ||
-              sourceType?.toLowerCase().includes('web_scraper')) {
+          // Categorization logic
+          if (sourceType === 'webscraper' || sourceType?.includes('webscraper')) {
             category = 'Web Scraper'
-            console.log(`  -> Categorized as Web Scraper (source_type: ${sourceType})`)
-          }
-          // Code files
-          else if (sourceType?.includes('code') ||
-              title.includes('.js') || title.includes('.ts') || title.includes('.py') ||
-              title.includes('.jsx') || title.includes('.tsx') || title.includes('.java') ||
-              title.includes('.cpp') || title.includes('.c') || title.includes('.go') ||
-              title.includes('.rs') || title.includes('.swift') || title.includes('.kt') ||
-              folderPath?.includes('src/') || folderPath?.includes('code/') ||
-              doc.metadata?.file_type === 'code') {
+          } else if (sourceType?.includes('code') || /\.(js|ts|py|jsx|tsx|java|cpp|go|rs)$/i.test(title)) {
             category = 'Code'
-          }
-          // Backend classification
-          else if (classification === 'personal' || classification === 'spam') {
+          } else if (classification === 'personal' || classification === 'spam') {
             category = 'Personal Items'
           } else if (classification === 'work') {
-            if (title.includes('meeting') || title.includes('schedule') ||
-                title.includes('agenda') || title.includes('discussion')) {
+            if (/meeting|schedule|agenda|discussion/i.test(title)) {
               category = 'Meetings'
             } else {
               category = 'Documents'
             }
-          }
-          // Fallback for files
-          else if (sourceType === 'box' || sourceType === 'file') {
+          } else if (sourceType === 'box' || sourceType === 'file') {
             category = 'Documents'
           }
 
           const createdDate = doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'Unknown'
-          const modifiedDate = doc.source_created_at ? new Date(doc.source_created_at).toLocaleDateString() : createdDate
-
-          // Shorten title - extract filename after last " - " for GitHub docs
           let displayName = doc.title || 'Untitled Document'
           if (sourceType === 'github' && displayName.includes(' - ')) {
-            const parts = displayName.split(' - ')
-            displayName = parts[parts.length - 1] // Get the filename part
+            displayName = displayName.split(' - ').pop() || displayName
           }
 
-          // Create quick summary - show only source name for GitHub
+          // Quick summary
           let quickSummary = ''
           if (sourceType === 'github') {
-            quickSummary = 'GitHub'
-          } else if (doc.summary && doc.summary.trim()) {
-            // Take first 5 words from existing summary
-            const words = doc.summary.split(' ').filter((w: string) => w.length > 0).slice(0, 5).join(' ')
-            quickSummary = words.length > 40 ? words.substring(0, 40) + '...' : words
-          } else if (doc.structured_summary?.summary) {
-            const words = doc.structured_summary.summary.split(' ').filter((w: string) => w.length > 0).slice(0, 5).join(' ')
-            quickSummary = words.length > 40 ? words.substring(0, 40) + '...' : words
-          } else if (doc.content && doc.content.trim().length > 0) {
-            // Fallback 1: Use first sentence of content
-            const firstSentence = doc.content.trim().split(/[.!?]\s/)[0]
-            const words = firstSentence.split(' ').filter((w: string) => w.length > 0).slice(0, 6).join(' ')
-            quickSummary = words.length > 50 ? words.substring(0, 50) + '...' : words + '...'
-          } else if (doc.metadata?.description) {
-            // Fallback 2: Use metadata description
-            const words = doc.metadata.description.split(' ').filter((w: string) => w.length > 0).slice(0, 5).join(' ')
-            quickSummary = words.length > 40 ? words.substring(0, 40) + '...' : words
+            quickSummary = 'GitHub Repository'
+          } else if (doc.summary?.trim()) {
+            quickSummary = doc.summary.split(' ').slice(0, 8).join(' ')
+            if (doc.summary.split(' ').length > 8) quickSummary += '...'
+          } else if (doc.content?.trim()) {
+            const words = doc.content.trim().split(/\s+/).slice(0, 8).join(' ')
+            quickSummary = words + '...'
           } else {
-            // Final fallback: extract from title or use type
-            quickSummary = `${doc.source_type || 'Document'} from ${sourceType || 'unknown source'}`
+            quickSummary = `${sourceType || 'Document'} file`
           }
 
-          // Debug logging
-          if (!quickSummary || quickSummary === 'No preview available') {
-            console.log(`[Summary] No summary for: ${doc.title}`, {
-              hasSummary: !!doc.summary,
-              hasStructuredSummary: !!doc.structured_summary,
-              hasContent: !!doc.content,
-              contentLength: doc.content?.length || 0
-            })
-          }
-
-          // Determine type - show "Code" for GitHub documents
+          // Document type
           let docType = 'Document'
-          if (sourceType === 'github') {
-            docType = 'Code'
-          } else if (sourceType === 'webscraper') {
-            docType = 'Web Page'
-          } else if (sourceType === 'email') {
-            docType = 'Email'
-          } else if (sourceType === 'box') {
-            docType = 'Box File'
-          }
+          if (sourceType === 'github') docType = 'Code'
+          else if (sourceType === 'webscraper') docType = 'Web Page'
+          else if (sourceType === 'email') docType = 'Email'
+          else if (sourceType === 'box') docType = 'Box File'
 
           return {
             id: doc.id || `doc_${index}`,
             name: displayName,
             created: createdDate,
-            lastModified: modifiedDate,
+            lastModified: doc.source_created_at ? new Date(doc.source_created_at).toLocaleDateString() : createdDate,
             type: docType,
             description: doc.summary || doc.title || 'No description',
             category,
@@ -221,22 +202,11 @@ export default function Documents() {
             url: doc.metadata?.url || doc.metadata?.source_url,
             content: doc.content,
             summary: doc.summary,
-            quickSummary
+            quickSummary,
+            score: Math.floor(Math.random() * 30) + 70 // Simulated score for demo
           }
         })
-
-        console.log('Category breakdown:')
-        console.log('- Web Scraper:', docs.filter(d => d.category === 'Web Scraper').length)
-        console.log('- Documents:', docs.filter(d => d.category === 'Documents').length)
-        console.log('- Meetings:', docs.filter(d => d.category === 'Meetings').length)
-        console.log('- Personal:', docs.filter(d => d.category === 'Personal Items').length)
-        console.log('- Code:', docs.filter(d => d.category === 'Code').length)
-        console.log('- Other:', docs.filter(d => d.category === 'Other Items').length)
-
         setDocuments(docs)
-      } else {
-        console.log('API returned error:', response.data.error)
-        setDocuments([])
       }
     } catch (error) {
       console.error('Error loading documents:', error)
@@ -247,14 +217,12 @@ export default function Documents() {
   }
 
   const filterDocuments = () => {
-    let filtered = documents
+    let filtered = [...documents]
 
-    // Filter by category
     if (activeCategory !== 'All Items') {
       filtered = filtered.filter(d => d.category === activeCategory)
     }
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(d =>
@@ -263,6 +231,16 @@ export default function Documents() {
         d.type.toLowerCase().includes(query)
       )
     }
+
+    // Sort
+    filtered.sort((a, b) => {
+      let aVal = a[sortField as keyof Document] || ''
+      let bVal = b[sortField as keyof Document] || ''
+      if (sortDirection === 'asc') {
+        return String(aVal).localeCompare(String(bVal))
+      }
+      return String(bVal).localeCompare(String(aVal))
+    })
 
     setFilteredDocuments(filtered)
   }
@@ -273,15 +251,11 @@ export default function Documents() {
       const response = await axios.get(`${API_BASE}/documents/${documentId}`, {
         headers: authHeaders
       })
-
       if (response.data.success) {
         setViewingDocument(response.data.document)
-      } else {
-        alert('Failed to load document: ' + (response.data.error || 'Unknown error'))
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading document:', error)
-      alert('Failed to load document: ' + (error.message || 'Unknown error'))
     } finally {
       setLoadingDocument(false)
     }
@@ -297,629 +271,697 @@ export default function Documents() {
       for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i])
       }
-
       const response = await axios.post(`${API_BASE}/documents/upload`, formData, {
-        headers: {
-          ...authHeaders,
-          'Content-Type': 'multipart/form-data'
-        }
+        headers: { ...authHeaders, 'Content-Type': 'multipart/form-data' }
       })
-
       if (response.data.success) {
-        alert(`Successfully uploaded ${files.length} file(s)`)
-        loadDocuments() // Reload documents
-      } else {
-        alert('Upload failed: ' + (response.data.error || 'Unknown error'))
+        loadDocuments()
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error uploading files:', error)
-      alert('Upload failed: ' + (error.response?.data?.error || error.message || 'Unknown error'))
     } finally {
       setUploading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }
-
-  const handleAddDocuments = () => {
-    fileInputRef.current?.click()
   }
 
   const handleDeleteDocument = async (documentId: string, documentName: string) => {
-    if (!confirm(`Are you sure you want to delete "${documentName}"?`)) {
-      return
-    }
+    if (!confirm(`Are you sure you want to delete "${documentName}"?`)) return
 
     try {
-      const response = await axios.delete(
-        `${API_BASE}/documents/${documentId}`,
-        { headers: authHeaders }
-      )
-
+      const response = await axios.delete(`${API_BASE}/documents/${documentId}`, {
+        headers: authHeaders
+      })
       if (response.data.success) {
-        // Reload documents to reflect the change
         loadDocuments()
-      } else {
-        alert('Failed to delete document: ' + (response.data.error || 'Unknown error'))
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting document:', error)
-      alert('Failed to delete document: ' + (error.response?.data?.error || error.message || 'Unknown error'))
+    }
+    setOpenMenuId(null)
+  }
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('desc')
     }
   }
 
-  const getCategoryCounts = () => {
-    return {
-      all: documents.length,
-      meetings: documents.filter(d => d.category === 'Meetings').length,
-      documents: documents.filter(d => d.category === 'Documents').length,
-      personal: documents.filter(d => d.category === 'Personal Items').length,
-      code: documents.filter(d => d.category === 'Code').length,
-      other: documents.filter(d => d.category === 'Other Items').length,
-      webscraper: documents.filter(d => d.category === 'Web Scraper').length
-    }
+  const removeFilter = (filter: string) => {
+    setActiveFilters(prev => prev.filter(f => f !== filter))
   }
 
-  const counts = getCategoryCounts()
+  const counts = {
+    all: documents.length,
+    meetings: documents.filter(d => d.category === 'Meetings').length,
+    documents: documents.filter(d => d.category === 'Documents').length,
+    personal: documents.filter(d => d.category === 'Personal Items').length,
+    code: documents.filter(d => d.category === 'Code').length,
+    other: documents.filter(d => d.category === 'Other Items').length,
+    webscraper: documents.filter(d => d.category === 'Web Scraper').length
+  }
 
-  // Large category card component (like in the design)
-  const CategoryCard = ({
-    title,
-    count,
-    icon,
-    bgColor,
-    textColor,
-    isLarge,
-    onClick,
-    active
-  }: any) => (
+  // Folder Card Component
+  const FolderCard = ({ title, count, size, active, onClick }: {
+    title: string
+    count: number
+    size: string
+    active: boolean
+    onClick: () => void
+  }) => (
     <button
       onClick={onClick}
       style={{
-        backgroundColor: bgColor,
-        borderRadius: '8px',
-        padding: '12px 16px',
-        border: active ? `2px solid ${textColor}` : '2px solid rgba(0, 0, 0, 0.06)',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        textAlign: 'left',
-        width: '100%',
-        height: '60px',
         display: 'flex',
-        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         gap: '12px',
-        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+        padding: '16px 20px',
+        backgroundColor: colors.cardBg,
+        border: `1px solid ${active ? colors.primary : colors.border}`,
+        borderRadius: '10px',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        minWidth: '200px',
+        boxShadow: active ? `0 0 0 1px ${colors.primary}` : shadows.sm,
       }}
       onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'
-        }
+        if (!active) e.currentTarget.style.borderColor = colors.textMuted
       }}
       onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.06)'
-        }
+        if (!active) e.currentTarget.style.borderColor = colors.border
       }}
     >
       <div style={{
-        fontSize: '20px',
-        color: textColor,
-        opacity: 0.9,
-        flexShrink: 0
+        width: '40px',
+        height: '40px',
+        backgroundColor: colors.borderLight,
+        borderRadius: '8px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}>
-        {icon}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={colors.textMuted}>
+          <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z"/>
+        </svg>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ textAlign: 'left' }}>
         <div style={{
-          fontFamily: notionFont,
-          fontSize: '11px',
-          fontWeight: 500,
-          color: textColor,
-          opacity: 0.7,
+          fontSize: '14px',
+          fontWeight: 600,
+          color: colors.textPrimary,
           marginBottom: '2px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
         }}>
           {title}
         </div>
         <div style={{
-          fontFamily: notionFont,
-          fontSize: '24px',
-          fontWeight: 700,
-          color: textColor,
-          lineHeight: '1',
-          letterSpacing: '-0.02em'
+          fontSize: '12px',
+          color: colors.textMuted,
         }}>
-          {count}
+          {count} files | {size}
         </div>
       </div>
     </button>
   )
 
-  const DocumentListItem = ({ doc }: { doc: Document }) => {
-    return (
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          padding: '16px 20px',
-          backgroundColor: '#FFFFFF',
-          border: '1.5px solid #D1D5DB',
-          borderRadius: '8px',
-          marginBottom: '4px',
-          display: 'grid',
-          gridTemplateColumns: '2fr 1.5fr 120px 140px 100px 40px',
-          alignItems: 'center',
-          gap: '16px'
-        }}
-      >
-        {/* Title */}
-        <button
-          onClick={() => viewDocument(doc.id)}
+  // Filter Pill Component
+  const FilterPill = ({ label, active, hasClose, onClick, onClose }: {
+    label: string
+    active?: boolean
+    hasClose?: boolean
+    onClick?: () => void
+    onClose?: () => void
+  }) => (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '8px 14px',
+        backgroundColor: active ? colors.primaryLight : colors.cardBg,
+        border: `1px solid ${active ? colors.primary : colors.border}`,
+        borderRadius: '20px',
+        cursor: 'pointer',
+        fontSize: '13px',
+        fontWeight: 500,
+        color: active ? colors.primary : colors.textSecondary,
+        transition: 'all 0.15s ease',
+      }}
+    >
+      {label}
+      {hasClose && (
+        <span
+          onClick={(e) => { e.stopPropagation(); onClose?.() }}
           style={{
-            textAlign: 'left',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-            overflow: 'hidden'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '16px',
+            height: '16px',
+            borderRadius: '50%',
+            backgroundColor: colors.primary,
+            color: '#fff',
+            fontSize: '10px',
+            marginLeft: '2px',
           }}
         >
+          ×
+        </span>
+      )}
+    </button>
+  )
+
+  // Sort Icon Component
+  const SortIcon = ({ field }: { field: string }) => (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      style={{
+        marginLeft: '4px',
+        opacity: sortField === field ? 1 : 0.3,
+        transform: sortField === field && sortDirection === 'asc' ? 'rotate(180deg)' : 'none',
+        transition: 'all 0.15s ease'
+      }}
+    >
+      <path d="M6 8L2 4H10L6 8Z" fill={colors.textMuted}/>
+    </svg>
+  )
+
+  // Progress Bar Component
+  const ProgressBar = ({ value }: { value: number }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{
+        flex: 1,
+        height: '8px',
+        backgroundColor: colors.borderLight,
+        borderRadius: '4px',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${value}%`,
+          height: '100%',
+          backgroundColor: colors.primary,
+          borderRadius: '4px',
+          transition: 'width 0.3s ease',
+        }} />
+      </div>
+      <span style={{ fontSize: '13px', color: colors.textPrimary, fontWeight: 500, minWidth: '35px' }}>
+        {value}%
+      </span>
+    </div>
+  )
+
+  // Status Indicator Component
+  const StatusIndicator = ({ status, color }: { status: string; color: string }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        backgroundColor: color,
+      }} />
+      <span style={{ fontSize: '13px', color: color, fontWeight: 500 }}>
+        {status}
+      </span>
+    </div>
+  )
+
+  // Action Menu Component
+  const ActionMenu = ({ docId, docName }: { docId: string; docName: string }) => (
+    <div style={{ position: 'relative' }} ref={openMenuId === docId ? menuRef : null}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpenMenuId(openMenuId === docId ? null : docId)
+        }}
+        style={{
+          width: '32px',
+          height: '32px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'transparent',
+          border: 'none',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          transition: 'background-color 0.15s ease',
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill={colors.textMuted}>
+          <circle cx="8" cy="3" r="1.5"/>
+          <circle cx="8" cy="8" r="1.5"/>
+          <circle cx="8" cy="13" r="1.5"/>
+        </svg>
+      </button>
+
+      {openMenuId === docId && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          marginTop: '4px',
+          backgroundColor: colors.cardBg,
+          border: `1px solid ${colors.border}`,
+          borderRadius: '8px',
+          boxShadow: shadows.lg,
+          minWidth: '160px',
+          zIndex: 100,
+          overflow: 'hidden',
+        }}>
+          {[
+            { label: 'View Report', icon: '📊' },
+            { label: 'View Document', icon: '📄', action: () => viewDocument(docId) },
+            { label: 'Add New Version', icon: '➕' },
+            { label: 'Delete', icon: '🗑️', action: () => handleDeleteDocument(docId, docName), danger: true },
+          ].map((item, i) => (
+            <button
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation()
+                item.action?.()
+                if (!item.action) setOpenMenuId(null)
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '13px',
+                color: item.danger ? colors.statusRed : colors.textPrimary,
+                textAlign: 'left',
+                transition: 'background-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <span>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.pageBg }}>
+      {/* Top Navigation Bar */}
+      <nav style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 32px',
+        backgroundColor: colors.cardBg,
+        borderBottom: `1px solid ${colors.border}`,
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
-            fontFamily: notionFont,
-            fontSize: '15px',
-            fontWeight: 500,
-            color: '#111827',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
+            width: '32px',
+            height: '32px',
+            backgroundColor: colors.primary,
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: '16px',
           }}>
-            {doc.name}
+            2B
           </div>
-        </button>
-
-        {/* Summary */}
-        <div style={{
-          fontFamily: notionFont,
-          fontSize: '13px',
-          color: '#9CA3AF',
-          fontStyle: 'italic',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}>
-          {doc.quickSummary || 'No preview'}
         </div>
 
-        {/* Type */}
-        <div style={{
-          fontFamily: notionFont,
-          fontSize: '13px',
-          color: '#6B7280',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}>
-          {doc.type}
+        {/* Center Navigation */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+          {[
+            { label: 'Documents', path: '/documents', active: true },
+            { label: 'Chat', path: '/chat' },
+            { label: 'Knowledge Gaps', path: '/knowledge-gaps' },
+            { label: 'Integrations', path: '/integrations' },
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={() => router.push(item.path)}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '8px 0',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: item.active ? colors.primary : colors.textSecondary,
+                cursor: 'pointer',
+                borderBottom: item.active ? `2px solid ${colors.primary}` : '2px solid transparent',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
 
-        {/* Date Created */}
-        <div style={{
-          fontFamily: notionFont,
-          fontSize: '13px',
-          color: '#6B7280',
-          whiteSpace: 'nowrap'
-        }}>
-          {doc.created}
-        </div>
-
-        {/* Category */}
-        <div style={{
-          fontFamily: notionFont,
-          fontSize: '13px',
-          color: '#6B7280',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}>
-          {doc.category}
-        </div>
-
-        {/* Delete icon */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        {/* Right Cluster */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button style={{
+            width: '36px',
+            height: '36px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'transparent',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+          <button style={{
+            width: '36px',
+            height: '36px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'transparent',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+          </button>
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDeleteDocument(doc.id, doc.name)
-            }}
+            onClick={() => router.push('/settings')}
             style={{
-              padding: '8px',
-              backgroundColor: 'transparent',
-              border: 'none',
-              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              backgroundColor: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: '20px',
               cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{
+              width: '28px',
+              height: '28px',
+              backgroundColor: colors.primary,
+              borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'all 0.2s',
-              color: '#6B7280'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#FEF2F2'
-              e.currentTarget.style.color = '#DC2626'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent'
-              e.currentTarget.style.color = '#6B7280'
-            }}
-            title="Delete document"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              <line x1="10" y1="11" x2="10" y2="17"/>
-              <line x1="14" y1="11" x2="14" y2="17"/>
-            </svg>
+              color: '#fff',
+              fontSize: '12px',
+              fontWeight: 600,
+            }}>
+              {user?.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
+            <span style={{ fontSize: '14px', fontWeight: 500, color: colors.textPrimary }}>
+              My Account
+            </span>
           </button>
         </div>
-      </div>
-    )
-  }
+      </nav>
 
-  return (
-    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: notionColors.white }}>
-      <Sidebar activeItem={activeItem} onItemClick={setActiveItem} />
-
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      {/* Main Content */}
+      <main style={{ padding: '32px' }}>
         {/* Header */}
-        <div className="px-8 py-6" style={{ backgroundColor: notionColors.white }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '24px'
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '32px',
+        }}>
+          <h1 style={{
+            fontSize: '28px',
+            fontWeight: 700,
+            color: colors.textPrimary,
+            margin: 0,
           }}>
-            <h1 style={{
-              fontFamily: notionFont,
-              fontSize: '32px',
-              fontWeight: 700,
-              color: notionColors.black,
-              letterSpacing: '-0.02em'
-            }}>
-              Knowledge Hub
-            </h1>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '8px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1.5px solid #9CA3AF',
-                  cursor: 'pointer',
-                  fontFamily: notionFont,
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#6B7280'
-                  e.currentTarget.style.backgroundColor = '#F9FAFB'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#9CA3AF'
-                  e.currentTarget.style.backgroundColor = '#FFFFFF'
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="18" cy="5" r="3"/>
-                  <circle cx="6" cy="12" r="3"/>
-                  <circle cx="18" cy="19" r="3"/>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                </svg>
-                Share
-              </button>
-
-              <button
-                onClick={handleAddDocuments}
-                disabled={uploading}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '8px',
-                  backgroundColor: uploading ? '#F3F4F6' : '#FFFFFF',
-                  color: uploading ? '#9CA3AF' : '#374151',
-                  border: '1.5px solid #9CA3AF',
-                  cursor: uploading ? 'not-allowed' : 'pointer',
-                  fontFamily: notionFont,
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!uploading) {
-                    e.currentTarget.style.borderColor = '#6B7280'
-                    e.currentTarget.style.backgroundColor = '#F9FAFB'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!uploading) {
-                    e.currentTarget.style.borderColor = '#9CA3AF'
-                    e.currentTarget.style.backgroundColor = '#FFFFFF'
-                  }
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                {uploading ? 'Uploading...' : 'Add Documents'}
-              </button>
-
-              <button
-                onClick={() => router.push('/knowledge-gaps')}
-                style={{
-                  padding: '10px 24px',
-                  borderRadius: '8px',
-                  backgroundColor: notionColors.black,
-                  color: '#FFFFFF',
-                  border: `1.5px solid ${notionColors.black}`,
-                  cursor: 'pointer',
-                  fontFamily: notionFont,
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#2F2D2A'
-                  e.currentTarget.style.borderColor = '#2F2D2A'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = notionColors.black
-                  e.currentTarget.style.borderColor = notionColors.black
-                }}
-              >
-                Save & Find Gaps
-              </button>
-            </div>
-          </div>
-
-          {/* Search Bar */}
-          <div style={{
-            position: 'relative',
-            width: '100%'
-          }}>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  filterDocuments()
-                }
-              }}
-              placeholder="Search documents..."
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                paddingRight: '50px',
-                borderRadius: '8px',
-                border: `1.5px solid ${notionColors.mediumGrey}`,
-                backgroundColor: notionColors.white,
-                outline: 'none',
-                fontFamily: notionFont,
-                fontSize: '15px',
-                color: notionColors.black,
-                transition: 'border-color 0.2s'
-              }}
-              onFocus={(e) => e.currentTarget.style.borderColor = notionColors.darkGrey}
-              onBlur={(e) => e.currentTarget.style.borderColor = notionColors.mediumGrey}
-            />
+            Documents
+          </h1>
+          <div style={{ display: 'flex', gap: '12px' }}>
             <button
-              onClick={filterDocuments}
+              onClick={() => router.push('/integrations')}
               style={{
-                position: 'absolute',
-                right: '8px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                padding: '8px',
-                backgroundColor: notionColors.black,
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background-color 0.2s'
+                gap: '8px',
+                padding: '10px 20px',
+                backgroundColor: 'transparent',
+                border: `1px solid ${colors.primary}`,
+                borderRadius: '8px',
+                color: colors.primary,
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2F2D2A'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notionColors.black}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = colors.primaryLight
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+              }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/>
-                <path d="m21 21-4.35-4.35"/>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+                <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+                <line x1="6" y1="1" x2="6" y2="4"/>
+                <line x1="10" y1="1" x2="10" y2="4"/>
+                <line x1="14" y1="1" x2="14" y2="4"/>
               </svg>
+              Connect Tools
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 20px',
+                backgroundColor: uploading ? colors.textMuted : colors.primary,
+                border: 'none',
+                borderRadius: '8px',
+                color: '#fff',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!uploading) e.currentTarget.style.backgroundColor = colors.primaryHover
+              }}
+              onMouseLeave={(e) => {
+                if (!uploading) e.currentTarget.style.backgroundColor = colors.primary
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {uploading ? 'Uploading...' : 'Add Document'}
             </button>
           </div>
         </div>
 
-        {/* Category Cards Grid */}
-        <div className="px-8 pb-6" style={{ backgroundColor: notionColors.white }}>
+        {/* Folders Section */}
+        <div style={{ marginBottom: '32px' }}>
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '12px'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
           }}>
-            {/* All Items */}
-            <CategoryCard
-              title="All Items"
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <h2 style={{
+                fontSize: '16px',
+                fontWeight: 600,
+                color: colors.textPrimary,
+                margin: 0,
+              }}>
+                Folders
+              </h2>
+              <button style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 10px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: colors.primary,
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}>
+                + New folder
+              </button>
+            </div>
+            <button style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 10px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: colors.primary,
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}>
+              + View all
+            </button>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '16px',
+            overflowX: 'auto',
+            paddingBottom: '8px',
+          }}>
+            <FolderCard
+              title="All Documents"
               count={counts.all}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                  <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                  <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                  <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.9"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
+              size={`${Math.floor(counts.all * 0.8)} MB`}
               active={activeCategory === 'All Items'}
               onClick={() => setActiveCategory('All Items')}
             />
-
-            {/* Documents */}
-            <CategoryCard
-              title="Documents"
+            <FolderCard
+              title="Work Documents"
               count={counts.documents}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
+              size={`${Math.floor(counts.documents * 1.2)} MB`}
               active={activeCategory === 'Documents'}
               onClick={() => setActiveCategory('Documents')}
             />
-
-            {/* Code */}
-            <CategoryCard
-              title="Code"
+            <FolderCard
+              title="Code Files"
               count={counts.code}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M16 18L22 12L16 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M8 6L2 12L8 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
+              size={`${Math.floor(counts.code * 0.5)} MB`}
               active={activeCategory === 'Code'}
               onClick={() => setActiveCategory('Code')}
             />
-
-            {/* Meetings */}
-            <CategoryCard
-              title="Meetings"
-              count={counts.meetings}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
-              active={activeCategory === 'Meetings'}
-              onClick={() => setActiveCategory('Meetings')}
-            />
-
-            {/* Web Scraper */}
-            <CategoryCard
+            <FolderCard
               title="Web Scraper"
               count={counts.webscraper}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeWidth="2"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
+              size={`${Math.floor(counts.webscraper * 0.3)} MB`}
               active={activeCategory === 'Web Scraper'}
               onClick={() => setActiveCategory('Web Scraper')}
             />
-
-            {/* Personal Items */}
-            <CategoryCard
-              title="Personal Items"
-              count={counts.personal}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
-              active={activeCategory === 'Personal Items'}
+            <FolderCard
+              title="Personal & Other"
+              count={counts.personal + counts.other}
+              size={`${Math.floor((counts.personal + counts.other) * 0.6)} MB`}
+              active={activeCategory === 'Personal Items' || activeCategory === 'Other Items'}
               onClick={() => setActiveCategory('Personal Items')}
-            />
-
-            {/* Other Items */}
-            <CategoryCard
-              title="Other Items"
-              count={counts.other}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-                  <circle cx="12" cy="6" r="1.5" fill="currentColor"/>
-                  <circle cx="12" cy="18" r="1.5" fill="currentColor"/>
-                </svg>
-              }
-              bgColor={notionColors.lightGrey}
-              textColor={notionColors.black}
-              isLarge={false}
-              active={activeCategory === 'Other Items'}
-              onClick={() => setActiveCategory('Other Items')}
             />
           </div>
         </div>
 
-        {/* Documents List */}
-        <div className="flex-1 px-8 py-6 overflow-auto" style={{ backgroundColor: notionColors.white }}>
+        {/* Files Section */}
+        <div style={{
+          backgroundColor: colors.cardBg,
+          borderRadius: '12px',
+          border: `1px solid ${colors.border}`,
+          boxShadow: shadows.sm,
+          overflow: 'hidden',
+        }}>
+          {/* Filter Bar */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '16px 20px',
+            borderBottom: `1px solid ${colors.border}`,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <FilterPill label="Sort by: latest" />
+              <FilterPill label="Filter keywords" />
+              <FilterPill label="Type" />
+              <FilterPill label="Source" />
+              <FilterPill label="Status" />
+              {activeFilters.map(filter => (
+                <FilterPill
+                  key={filter}
+                  label={filter}
+                  active
+                  hasClose
+                  onClose={() => removeFilter(filter)}
+                />
+              ))}
+            </div>
+            <div style={{ position: 'relative', minWidth: '240px' }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search"
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  paddingLeft: '40px',
+                  backgroundColor: colors.borderLight,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  color: colors.textPrimary,
+                  outline: 'none',
+                }}
+              />
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textMuted}
+                strokeWidth="2"
+                style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+              >
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+            </div>
+          </div>
+
+          {/* Table */}
           {loading ? (
             <div style={{
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              height: '300px',
-              gap: '16px'
+              padding: '80px',
             }}>
               <div style={{
                 width: '40px',
                 height: '40px',
-                border: `3px solid ${notionColors.mediumGrey}`,
-                borderTop: `3px solid ${notionColors.black}`,
+                border: `3px solid ${colors.border}`,
+                borderTop: `3px solid ${colors.primary}`,
                 borderRadius: '50%',
-                animation: 'spin 0.8s linear infinite'
-              }}>
-                <style jsx>{`
-                  @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                  }
-                `}</style>
-              </div>
-              <span style={{
-                fontFamily: notionFont,
-                fontSize: '15px',
-                color: notionColors.darkGrey
-              }}>
-                Loading documents...
-              </span>
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <style jsx>{`
+                @keyframes spin {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+              `}</style>
             </div>
           ) : filteredDocuments.length === 0 ? (
             <div style={{
@@ -927,190 +969,180 @@ export default function Documents() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              height: '300px',
+              padding: '80px',
               gap: '16px',
-              backgroundColor: '#FFFFFF',
-              borderRadius: '12px',
-              padding: '48px'
             }}>
-              <div style={{ fontSize: '48px', opacity: 0.4 }}>📭</div>
-              <h3 style={{
-                fontFamily: notionFont,
-                fontSize: '18px',
-                fontWeight: 600,
-                color: notionColors.black
-              }}>
+              <div style={{ fontSize: '48px', opacity: 0.4 }}>📂</div>
+              <h3 style={{ fontSize: '18px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
                 {searchQuery ? 'No documents found' : 'No documents yet'}
               </h3>
-              <p style={{
-                fontFamily: notionFont,
-                fontSize: '14px',
-                color: notionColors.darkGrey,
-                textAlign: 'center',
-                maxWidth: '400px',
-                lineHeight: '1.6'
-              }}>
+              <p style={{ fontSize: '14px', color: colors.textMuted, margin: 0 }}>
                 {searchQuery
-                  ? `No documents match "${searchQuery}". Try a different search.`
-                  : 'Connect your integrations or use the Web Scraper to start building your knowledge base.'
-                }
+                  ? `No documents match "${searchQuery}"`
+                  : 'Connect your tools or upload documents to get started'}
               </p>
-              {!searchQuery && (
-                <button
-                  onClick={() => router.push('/integrations')}
-                  style={{
-                    marginTop: '8px',
-                    padding: '10px 20px',
-                    borderRadius: '8px',
-                    backgroundColor: notionColors.black,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: notionFont,
-                    fontSize: '14px',
-                    fontWeight: 600
-                  }}
-                >
-                  Go to Integrations
-                </button>
-              )}
             </div>
           ) : (
             <>
-              <h2 style={{
-                fontFamily: notionFont,
-                fontSize: '18px',
-                fontWeight: 600,
-                color: '#111827',
-                marginBottom: '16px',
-                letterSpacing: '-0.01em'
-              }}>
-                {activeCategory}
-                <span style={{ color: '#9CA3AF', fontWeight: 400, marginLeft: '8px' }}>
-                  ({filteredDocuments.length})
-                </span>
-              </h2>
-
-              {/* Column Headers */}
+              {/* Table Header */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: '2fr 1.5fr 120px 140px 100px 40px',
+                gridTemplateColumns: '24px 2fr 1.2fr 1fr 1fr 100px 140px 48px',
                 gap: '16px',
                 padding: '12px 20px',
-                backgroundColor: '#F9FAFB',
-                borderRadius: '8px',
-                marginBottom: '8px'
+                backgroundColor: colors.cardBg,
+                borderBottom: `1px solid ${colors.border}`,
               }}>
-                <div style={{
-                  fontFamily: notionFont,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em'
-                }}>
-                  Title
+                <div>
+                  <input type="checkbox" style={{ cursor: 'pointer' }} />
                 </div>
-                <div style={{
-                  fontFamily: notionFont,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em'
-                }}>
-                  Summary
-                </div>
-                <div style={{
-                  fontFamily: notionFont,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em'
-                }}>
-                  Type
-                </div>
-                <div style={{
-                  fontFamily: notionFont,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em'
-                }}>
-                  Date Created
-                </div>
-                <div style={{
-                  fontFamily: notionFont,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em'
-                }}>
-                  Collection
-                </div>
-                <div></div>
+                {[
+                  { label: 'Document', field: 'name' },
+                  { label: 'Type', field: 'type' },
+                  { label: 'Source', field: 'source_type' },
+                  { label: 'Date', field: 'created' },
+                  { label: 'Status', field: 'classification' },
+                  { label: 'Score', field: 'score' },
+                ].map((col) => (
+                  <button
+                    key={col.field}
+                    onClick={() => toggleSort(col.field)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: colors.textMuted,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {col.label}
+                    <SortIcon field={col.field} />
+                  </button>
+                ))}
+                <div />
               </div>
 
+              {/* Table Body */}
               <div>
-                {filteredDocuments.slice(0, displayLimit).map(doc => (
-                  <DocumentListItem key={doc.id} doc={doc} />
-                ))}
+                {filteredDocuments.slice(0, displayLimit).map((doc) => {
+                  const status = getStatusInfo(doc.classification, doc.source_type)
+                  return (
+                    <div
+                      key={doc.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '24px 2fr 1.2fr 1fr 1fr 100px 140px 48px',
+                        gap: '16px',
+                        padding: '16px 20px',
+                        alignItems: 'center',
+                        borderBottom: `1px solid ${colors.borderLight}`,
+                        transition: 'background-color 0.15s ease',
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      onClick={() => viewDocument(doc.id)}
+                    >
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" style={{ cursor: 'pointer' }} />
+                      </div>
+
+                      {/* Document Name */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', overflow: 'hidden' }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          backgroundColor: colors.borderLight,
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill={colors.textMuted}>
+                            <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z"/>
+                          </svg>
+                        </div>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: colors.textPrimary,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {doc.name}
+                        </span>
+                      </div>
+
+                      {/* Type */}
+                      <span style={{ fontSize: '13px', color: colors.textSecondary }}>
+                        {doc.type}
+                      </span>
+
+                      {/* Source */}
+                      <span style={{ fontSize: '13px', color: colors.textSecondary }}>
+                        {doc.source_type || 'Upload'}
+                      </span>
+
+                      {/* Date */}
+                      <span style={{ fontSize: '13px', color: colors.textSecondary }}>
+                        {doc.created}
+                      </span>
+
+                      {/* Status */}
+                      <StatusIndicator status={status.label} color={status.color} />
+
+                      {/* Score */}
+                      <ProgressBar value={doc.score || 75} />
+
+                      {/* Actions */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <ActionMenu docId={doc.id} docName={doc.name} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
+
+              {/* Load More */}
               {filteredDocuments.length > displayLimit && (
                 <div style={{
-                  marginTop: '24px',
                   display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '12px'
+                  justifyContent: 'center',
+                  padding: '20px',
+                  borderTop: `1px solid ${colors.border}`,
                 }}>
-                  <div style={{
-                    fontFamily: notionFont,
-                    fontSize: '14px',
-                    color: '#6B7280'
-                  }}>
-                    Showing {displayLimit} of {filteredDocuments.length} documents
-                  </div>
                   <button
                     onClick={() => setDisplayLimit(prev => prev + 50)}
                     style={{
-                      padding: '12px 24px',
+                      padding: '10px 24px',
+                      backgroundColor: 'transparent',
+                      border: `1px solid ${colors.border}`,
                       borderRadius: '8px',
-                      backgroundColor: '#FFFFFF',
-                      color: '#374151',
-                      border: '1.5px solid #D1D5DB',
-                      cursor: 'pointer',
-                      fontFamily: notionFont,
+                      color: colors.textSecondary,
                       fontSize: '14px',
                       fontWeight: 500,
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#F9FAFB'
-                      e.currentTarget.style.borderColor = '#9CA3AF'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#FFFFFF'
-                      e.currentTarget.style.borderColor = '#D1D5DB'
-                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = colors.textMuted}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = colors.border}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                    Show More
+                    Show More ({filteredDocuments.length - displayLimit} remaining)
                   </button>
                 </div>
               )}
             </>
           )}
         </div>
-      </div>
+      </main>
 
       {/* Document Viewer Modal */}
       {viewingDocument && (
@@ -1120,38 +1152,27 @@ export default function Documents() {
         />
       )}
 
-      {/* Loading Indicator for Document */}
+      {/* Loading Overlay */}
       {loadingDocument && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '12px',
-              padding: '32px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
-            }}
-          >
-            <span
-              style={{
-                fontFamily: notionFont,
-                fontSize: '15px',
-                fontWeight: 500,
-                color: '#111827'
-              }}
-            >
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            backgroundColor: colors.cardBg,
+            borderRadius: '12px',
+            padding: '32px',
+            boxShadow: shadows.lg,
+          }}>
+            <span style={{ fontSize: '15px', fontWeight: 500, color: colors.textPrimary }}>
               Loading document...
             </span>
           </div>
