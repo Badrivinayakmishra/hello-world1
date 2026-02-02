@@ -23,8 +23,8 @@ llama-parse==0.4.0
 llama-index-core==0.10.43  # Pinned for compatibility with protobuf 3.20.3
 
 # Data Processing
-pandas==2.1.4
-numpy==1.26.3  # Must stay on 1.x for spaCy/thinc binary compatibility
+pandas>=2.2.0  # 2.2+ supports numpy 2.x
+numpy>=2.0.0  # Required by crawl4ai, spaCy 3.8+ supports this
 
 # Content Generation
 python-pptx==0.6.23
@@ -72,9 +72,9 @@ celery==5.3.4
 redis==5.0.1
 kombu==5.3.4
 
-# NLP
-spacy==3.7.2
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
+# NLP - spaCy 3.8+ supports numpy 2.x
+spacy>=3.8.0
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 # ============================================================================
 # OPTIONAL: Enhanced Web Scraper Dependencies
@@ -97,6 +97,6 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0
 # Note: JavaScript rendering adds 3-5x overhead. Only enable if needed.
 # ============================================================================
 
-# Web Scraper uses BeautifulSoup + requests (included above)
-# Crawl4AI removed due to numpy 2.x requirement conflicting with spaCy
-# The webscraper fallback works well for most static websites
+# Crawl4AI - LLM-friendly web crawler with JS rendering
+# https://github.com/unclecode/crawl4ai
+crawl4ai>=0.3.0
