@@ -527,6 +527,7 @@ export default function KnowledgeGaps() {
           }}>
             <button
               onClick={() => state.isRecording ? stopRecording(gap.id) : startRecording(gap.id)}
+              className={state.isRecording ? 'animate-pulse-recording' : ''}
               style={{
                 width: '80px',
                 height: '80px',
@@ -538,8 +539,6 @@ export default function KnowledgeGaps() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 margin: '0 auto 12px',
-                boxShadow: state.isRecording ? `0 0 0 8px rgba(239, 68, 68, 0.2), 0 0 0 16px rgba(239, 68, 68, 0.1)` : 'none',
-                animation: state.isRecording ? 'pulse 1.5s ease-in-out infinite' : 'none',
                 transition: 'all 0.2s ease',
               }}
             >
@@ -679,14 +678,6 @@ export default function KnowledgeGaps() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.pageBg, display: 'flex', flexDirection: 'column' }}>
-      {/* CSS for pulse animation */}
-      <style jsx global>{`
-        @keyframes pulse {
-          0%, 100% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.2), 0 0 0 16px rgba(239, 68, 68, 0.1); }
-          50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0.3), 0 0 0 24px rgba(239, 68, 68, 0.15); }
-        }
-      `}</style>
-
       {/* Top Navigation Bar */}
       <nav style={{
         display: 'flex',
@@ -985,20 +976,16 @@ export default function KnowledgeGaps() {
             justifyContent: 'center',
             padding: '80px',
           }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              border: `3px solid ${colors.border}`,
-              borderTop: `3px solid ${colors.primary}`,
-              borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite',
-            }} />
-            <style jsx>{`
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            `}</style>
+            <div
+              className="animate-spin"
+              style={{
+                width: '40px',
+                height: '40px',
+                border: `3px solid ${colors.border}`,
+                borderTop: `3px solid ${colors.primary}`,
+                borderRadius: '50%',
+              }}
+            />
           </div>
         ) : gaps.length === 0 ? (
           <div style={{

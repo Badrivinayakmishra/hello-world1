@@ -14,3 +14,22 @@ body {
   font-family: 'Inter', sans-serif;
   background: #FFF3E4;
 }
+
+/* Knowledge Gaps Page Animations */
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.2), 0 0 0 16px rgba(239, 68, 68, 0.1); }
+  50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0.3), 0 0 0 24px rgba(239, 68, 68, 0.15); }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-pulse-recording {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
