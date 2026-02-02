@@ -8,7 +8,7 @@ services:
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_sm && playwright install --with-deps chromium
+    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_sm
     startCommand: gunicorn app_v2:app --bind 0.0.0.0:$PORT --workers 1 --worker-class gevent --timeout 600 --graceful-timeout 30
     healthCheckPath: /api/health
     envVars:
@@ -61,6 +61,8 @@ services:
       - key: SLACK_CLIENT_SECRET
         sync: false
       - key: LLAMA_CLOUD_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
         sync: false
 
   # Frontend (Next.js)

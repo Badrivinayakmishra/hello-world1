@@ -76,6 +76,5 @@ kombu==5.3.4
 spacy==3.7.2
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
 
-# Web Scraper - Pure Playwright (no crawl4ai dependency hell)
-playwright>=1.40.0
-nest-asyncio==1.6.0  # Allow nested event loops (fixes gevent + asyncio conflict)
+# Web Scraper - Firecrawl API (managed scraping service)
+firecrawl-py>=1.0.0

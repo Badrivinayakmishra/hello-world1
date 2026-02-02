@@ -2306,10 +2306,6 @@ def _run_connector_sync(
 
             # Run sync
             import asyncio
-            print(f"[Sync] Importing nest_asyncio...")
-            import nest_asyncio
-            print(f"[Sync] Applying nest_asyncio...")
-            nest_asyncio.apply()  # Allow nested event loops (fixes gevent + asyncio conflict)
             print(f"[Sync] Creating event loop...")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
