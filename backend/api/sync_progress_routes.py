@@ -11,8 +11,16 @@ from services.auth_service import require_auth
 
 sync_progress_bp = Blueprint('sync_progress', __name__, url_prefix='/api/sync-progress')
 
+# CORS allowed origins
+ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:3006',
+    'https://twondbrain-frontend.onrender.com',
+    'https://2ndbrain.onrender.com'
+]
 
-@sync_progress_bp.route('/<sync_id>/stream', methods=['GET'])
+
+@sync_progress_bp.route('/<sync_id>/stream', methods=['GET', 'OPTIONS'])
 def stream_progress(sync_id: str):
     """
     Server-Sent Events endpoint for real-time sync progress.
@@ -28,6 +36,18 @@ def stream_progress(sync_id: str):
         - complete: Sync finished successfully
         - error: Sync failed
     """
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin', '')
+        cors_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[2]
+        return Response('', status=200, headers={
+            'Access-Control-Allow-Origin': cors_origin,
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400'
+        })
+
     # Manual auth check for SSE (query param instead of header)
     from services.auth_service import JWTUtils
 
@@ -129,13 +149,22 @@ def stream_progress(sync_id: str):
             service.unsubscribe(sync_id, queue)
             loop.close()
 
+    # Get origin for CORS
+    origin = request.headers.get('Origin', '')
+
+    # Set CORS origin header if origin is allowed
+    cors_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[2]  # Default to production
+
     return Response(
         generate_events(),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',  # Disable nginx buffering
-            'Connection': 'keep-alive'
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': cors_origin,
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
         }
     )
 
