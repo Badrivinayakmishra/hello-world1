@@ -162,9 +162,15 @@ export default function SyncProgressModal({
 
     es.addEventListener('progress', (event: MessageEvent) => {
       clearConnectionTimeout()
+      console.log('[SyncProgress] Progress update:', event.data)
       const data = JSON.parse(event.data)
       setProgress(data)
     })
+
+    // Log ALL messages for debugging
+    es.onmessage = (event: MessageEvent) => {
+      console.log('[SyncProgress] Received message:', event)
+    }
 
     es.addEventListener('complete', (event: MessageEvent) => {
       clearConnectionTimeout()

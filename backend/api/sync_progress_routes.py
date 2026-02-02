@@ -75,6 +75,18 @@ def stream_progress(sync_id: str):
             loop.close()
             return
 
+        # Send current state immediately so frontend has data
+        try:
+            current_state = service.get_progress(sync_id)
+            if current_state:
+                print(f"[SSE] Sending current state: {current_state.status}")
+                yield f"event: current_state\n"
+                yield f"data: {json.dumps(current_state.to_dict())}\n\n"
+            else:
+                print(f"[SSE] No current state found for {sync_id}")
+        except Exception as e:
+            print(f"[SSE] ERROR getting current state: {e}")
+
         try:
             # Keep-alive timeout
             timeout = 30  # seconds
