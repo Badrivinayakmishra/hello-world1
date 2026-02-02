@@ -267,14 +267,41 @@ class WebScraperConnector(BaseConnector):
     def _extract_crawl_data(self, result: Any) -> List[Dict[str, Any]]:
         """Extract page data from crawl result, handling different response formats."""
         print(f"[WebScraper] _extract_crawl_data, result type: {type(result)}")
+        print(f"[WebScraper] Result repr: {repr(result)[:500]}")
 
         if result is None:
             print("[WebScraper] Result is None")
             return []
 
+        # Handle Firecrawl v2 CrawlJob object - access .data attribute
+        if hasattr(result, 'data'):
+            print(f"[WebScraper] Result has .data attribute, type: {type(result.data)}")
+            data = result.data
+            if data is not None:
+                return self._extract_crawl_data(data)  # Recursively process the data
+            print("[WebScraper] .data attribute is None")
+
         # If result is already a list
         if isinstance(result, list):
             print(f"[WebScraper] Result is list with {len(result)} items")
+            if len(result) > 0:
+                print(f"[WebScraper] First item type: {type(result[0])}")
+                # Check if list items are ScrapeResult objects with attributes
+                if hasattr(result[0], 'markdown') or hasattr(result[0], 'content'):
+                    print("[WebScraper] List items are ScrapeResult objects, converting to dicts")
+                    converted = []
+                    for item in result:
+                        item_dict = {}
+                        # Extract all relevant attributes
+                        for attr in ['markdown', 'content', 'html', 'text', 'url', 'sourceURL', 'source_url', 'title', 'metadata']:
+                            if hasattr(item, attr):
+                                val = getattr(item, attr)
+                                if val is not None:
+                                    item_dict[attr] = val
+                        if item_dict:
+                            converted.append(item_dict)
+                            print(f"[WebScraper] Converted item: {list(item_dict.keys())}")
+                    return converted
             return result
 
         # If result is a dict, look for data key
@@ -287,7 +314,7 @@ class WebScraperConnector(BaseConnector):
                     data = result[key]
                     if isinstance(data, list):
                         print(f"[WebScraper] Found {len(data)} items in '{key}'")
-                        return data
+                        return self._extract_crawl_data(data)  # Recursively process
                     elif data:
                         print(f"[WebScraper] '{key}' is not a list, wrapping")
                         return [data]
@@ -297,13 +324,32 @@ class WebScraperConnector(BaseConnector):
                 print("[WebScraper] Result looks like single page data")
                 return [result]
 
-        # Try to iterate if it's iterable
-        try:
-            data = list(result)
-            print(f"[WebScraper] Converted iterable to list: {len(data)} items")
-            return data
-        except (TypeError, ValueError):
-            pass
+        # Check if result is a typed object with attributes (like ScrapeResult)
+        if hasattr(result, 'markdown') or hasattr(result, 'content') or hasattr(result, 'url'):
+            print("[WebScraper] Result is a typed object with content attributes")
+            item_dict = {}
+            for attr in ['markdown', 'content', 'html', 'text', 'url', 'sourceURL', 'source_url', 'title', 'metadata']:
+                if hasattr(result, attr):
+                    val = getattr(result, attr)
+                    if val is not None:
+                        item_dict[attr] = val
+            if item_dict:
+                print(f"[WebScraper] Converted single object: {list(item_dict.keys())}")
+                return [item_dict]
+
+        # Last resort: try to iterate if it's iterable (but NOT for CrawlJob-like objects)
+        # This was causing the tuple issue - CrawlJob iterates as key-value pairs
+        type_name = type(result).__name__.lower()
+        if 'job' not in type_name and 'result' not in type_name:
+            try:
+                data = list(result)
+                print(f"[WebScraper] Converted iterable to list: {len(data)} items")
+                # Verify items are dicts
+                if data and isinstance(data[0], dict):
+                    return data
+                print(f"[WebScraper] List items are not dicts: {type(data[0]) if data else 'empty'}")
+            except (TypeError, ValueError):
+                pass
 
         print(f"[WebScraper] Could not extract data from result")
         return []
