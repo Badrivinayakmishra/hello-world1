@@ -359,9 +359,10 @@ export default function Documents() {
     if (!confirm(`Are you sure you want to delete ${count} document${count > 1 ? 's' : ''}?`)) return
 
     try {
-      // Delete each selected document
-      for (const docId of selectedDocs) {
-        await axios.delete(`${API_BASE}/documents/${docId}`, {
+      // Delete each selected document - convert Set to Array for iteration
+      const docIds = Array.from(selectedDocs)
+      for (let i = 0; i < docIds.length; i++) {
+        await axios.delete(`${API_BASE}/documents/${docIds[i]}`, {
           headers: authHeaders
         })
       }
