@@ -100,8 +100,9 @@ export default function SyncProgressModal({
       return
     }
 
+    // EventSource cannot send custom headers, so pass token as query param
     const es = new EventSource(
-      `${API_BASE}/sync-progress/${syncId}/stream`,
+      `${API_BASE}/sync-progress/${syncId}/stream?token=${encodeURIComponent(token)}`,
       { withCredentials: true }
     )
 

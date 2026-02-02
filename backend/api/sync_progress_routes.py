@@ -13,12 +13,13 @@ sync_progress_bp = Blueprint('sync_progress', __name__, url_prefix='/api/sync-pr
 
 
 @sync_progress_bp.route('/<sync_id>/stream', methods=['GET'])
-@require_auth
 def stream_progress(sync_id: str):
     """
     Server-Sent Events endpoint for real-time sync progress.
 
-    GET /api/sync-progress/<sync_id>/stream
+    GET /api/sync-progress/<sync_id>/stream?token=<jwt_token>
+
+    Note: EventSource cannot send custom headers, so token is passed as query param
 
     Returns:
         SSE stream with progress events:
@@ -27,6 +28,23 @@ def stream_progress(sync_id: str):
         - complete: Sync finished successfully
         - error: Sync failed
     """
+    # Manual auth check for SSE (query param instead of header)
+    from services.auth_service import JWTUtils
+
+    token = request.args.get('token')
+    if not token:
+        return jsonify({"error": "Missing authorization token"}), 401
+
+    payload, error = JWTUtils.decode_access_token(token)
+    if error:
+        return jsonify({"error": error}), 401
+
+    # Store user info in Flask g object
+    g.user_id = payload.get("sub")
+    g.tenant_id = payload.get("tenant_id")
+    g.email = payload.get("email")
+    g.role = payload.get("role")
+
     service = get_sync_progress_service()
 
     def generate_events():
