@@ -2356,10 +2356,14 @@ def _run_connector_sync(
                             stage='Crawling website...',
                             total_items=max_pages
                         )
+                    # WebScraper uses synchronous Firecrawl API - call directly without event loop
+                    print(f"[Sync] Calling webscraper sync directly (synchronous)")
+                    documents = instance._sync_sync(since)
                 elif sync_id:
                     progress_service.update_progress(sync_id, status='syncing', stage='Fetching documents...')
-
-                documents = loop.run_until_complete(instance.sync(since))
+                    documents = loop.run_until_complete(instance.sync(since))
+                else:
+                    documents = loop.run_until_complete(instance.sync(since))
 
                 # Update total items to actual count found
                 if sync_id and documents:
