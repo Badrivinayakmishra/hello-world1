@@ -21,6 +21,13 @@ try:
 except ImportError:
     SCRAPER_AVAILABLE = False
 
+try:
+    import asyncio
+    from playwright.async_api import async_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 
 class WebScraperConnector(BaseConnector):
     """
@@ -46,13 +53,87 @@ class WebScraperConnector(BaseConnector):
         "rate_limit_delay": 1.0,  # Seconds between requests
         "allowed_extensions": [".html", ".htm", ".pdf", ""],  # Empty string = no extension (index pages)
         "exclude_patterns": ["#", "mailto:", "tel:"],  # URL patterns to exclude
+        "capture_screenshots": True,  # Capture PDF screenshots of webpages
+        "screenshot_timeout": 30,  # Seconds to wait for page to load
     }
 
-    def __init__(self, config: ConnectorConfig):
+    def __init__(self, config: ConnectorConfig, tenant_id: Optional[str] = None):
         super().__init__(config)
         self.visited_urls: Set[str] = set()
         self.session = None
         self.base_domain = None
+        self.tenant_id = tenant_id
+        self.screenshots_dir = self._get_screenshots_dir()
+
+    def _get_screenshots_dir(self) -> str:
+        """Get the screenshots directory for the tenant."""
+        try:
+            if self.tenant_id:
+                screenshots_dir = f"tenant_data/{self.tenant_id}/screenshots"
+            else:
+                screenshots_dir = "tenant_data/default/screenshots"
+
+            # Create directory if it doesn't exist
+            os.makedirs(screenshots_dir, exist_ok=True)
+            print(f"[WebScraper] Screenshots directory: {screenshots_dir}")
+            return screenshots_dir
+        except Exception as e:
+            print(f"[WebScraper] Error creating screenshots directory: {e}")
+            return None
+
+    async def _capture_screenshot(self, url: str) -> Optional[str]:
+        """
+        Capture a PDF screenshot of a webpage using Playwright.
+
+        Args:
+            url: URL to capture
+
+        Returns:
+            Path to PDF file if successful, None otherwise
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            print(f"[WebScraper] Playwright not installed, skipping screenshot for {url}")
+            return None
+
+        if not self.screenshots_dir:
+            print(f"[WebScraper] Screenshots directory not available, skipping screenshot for {url}")
+            return None
+
+        capture_screenshots = self.config.settings.get("capture_screenshots", True)
+        if not capture_screenshots:
+            print(f"[WebScraper] Screenshot capture disabled, skipping {url}")
+            return None
+
+        try:
+            timeout = self.config.settings.get("screenshot_timeout", 30) * 1000
+            pdf_filename = f"{self._url_to_id(url)}.pdf"
+            pdf_path = os.path.join(self.screenshots_dir, pdf_filename)
+
+            print(f"[WebScraper]   Capturing screenshot for: {url}")
+
+            async with async_playwright() as p:
+                # Use chromium for better compatibility
+                browser = await p.chromium.launch()
+                try:
+                    page = await browser.new_page()
+
+                    # Navigate to page with timeout
+                    await page.goto(url, timeout=timeout, wait_until="networkidle")
+
+                    # Capture PDF
+                    await page.pdf(path=pdf_path)
+                    print(f"[WebScraper]   ✓ Screenshot saved: {pdf_path}")
+                    return pdf_path
+
+                except Exception as e:
+                    print(f"[WebScraper]   Error capturing screenshot: {e}")
+                    return None
+                finally:
+                    await browser.close()
+
+        except Exception as e:
+            print(f"[WebScraper] Failed to capture screenshot for {url}: {e}")
+            return None
 
     async def connect(self) -> bool:
         """Test website connection"""
@@ -308,6 +389,13 @@ class WebScraperConnector(BaseConnector):
                 result = self._parse_html(url, response.text, depth)
                 if result:
                     print(f"[WebScraper]   ✓ Successfully parsed HTML (content length: {len(result.content)})")
+
+                    # Capture screenshot of the webpage
+                    pdf_path = await self._capture_screenshot(url)
+                    if pdf_path:
+                        result.metadata["pdf_path"] = pdf_path
+                        print(f"[WebScraper]   ✓ Added screenshot to metadata")
+
                 else:
                     print(f"[WebScraper]   ✗ HTML parsing returned None")
                 return result

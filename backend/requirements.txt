@@ -96,3 +96,6 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0
 #
 # Note: JavaScript rendering adds 3-5x overhead. Only enable if needed.
 # ============================================================================
+
+# Web Scraper - Screenshot/PDF Capture
+playwright==1.40.0

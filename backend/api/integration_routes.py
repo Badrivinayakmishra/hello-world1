@@ -2304,12 +2304,23 @@ def _run_connector_sync(
                 # Update progress - fetching
                 sync_progress[progress_key]["progress"] = 20
                 sync_progress[progress_key]["current_file"] = "Fetching documents..."
-                if sync_id:
+
+                # For webscraper, set initial total_items to max_pages to avoid 100% progress at start
+                if connector_type == 'webscraper':
+                    max_pages = instance.config.settings.get('max_pages', 50)
+                    if sync_id:
+                        progress_service.update_progress(
+                            sync_id,
+                            status='syncing',
+                            stage='Crawling website...',
+                            total_items=max_pages
+                        )
+                elif sync_id:
                     progress_service.update_progress(sync_id, status='syncing', stage='Fetching documents...')
 
                 documents = loop.run_until_complete(instance.sync(since))
 
-                # Update total items found
+                # Update total items to actual count found
                 if sync_id and documents:
                     progress_service.update_progress(sync_id, total_items=len(documents))
 
