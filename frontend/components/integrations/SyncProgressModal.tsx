@@ -94,7 +94,7 @@ export default function SyncProgressModal({
 
   // Connect to SSE stream
   useEffect(() => {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('authToken')
     if (!token) {
       console.error('No auth token found')
       return
@@ -154,7 +154,7 @@ export default function SyncProgressModal({
 
   const sendEmailNotification = async () => {
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('authToken')
       await axios.post(
         `${API_BASE}/sync-progress/${syncId}/notify`,
         {},
