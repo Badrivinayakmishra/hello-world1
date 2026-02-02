@@ -60,6 +60,7 @@ interface Document {
   summary?: string
   quickSummary?: string
   score?: number
+  classificationConfidence?: number
 }
 
 interface FullDocument {
@@ -101,6 +102,7 @@ export default function Documents() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [activeFilters, setActiveFilters] = useState<string[]>([])
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
 
   const authHeaders = useAuthHeaders()
   const { token, user, logout } = useAuth()
@@ -188,6 +190,21 @@ export default function Documents() {
           else if (sourceType === 'email') docType = 'Email'
           else if (sourceType === 'box') docType = 'Box File'
 
+          // Calculate personal likelihood percentage from classification confidence
+          // If classified as personal/spam, confidence is the personal %
+          // If classified as work, personal % = 100 - confidence
+          let personalPercent = 50 // Default for unknown
+          if (doc.classification_confidence !== null && doc.classification_confidence !== undefined) {
+            const confidence = doc.classification_confidence * 100
+            if (classification === 'personal' || classification === 'spam') {
+              personalPercent = Math.round(confidence)
+            } else if (classification === 'work') {
+              personalPercent = Math.round(100 - confidence)
+            } else {
+              personalPercent = 50 // Unknown classification
+            }
+          }
+
           return {
             id: doc.id || `doc_${index}`,
             name: displayName,
@@ -203,7 +220,8 @@ export default function Documents() {
             content: doc.content,
             summary: doc.summary,
             quickSummary,
-            score: Math.floor(Math.random() * 30) + 70 // Simulated score for demo
+            score: personalPercent,
+            classificationConfidence: doc.classification_confidence
           }
         })
         setDocuments(docs)
@@ -312,6 +330,64 @@ export default function Documents() {
 
   const removeFilter = (filter: string) => {
     setActiveFilters(prev => prev.filter(f => f !== filter))
+  }
+
+  const toggleDocSelection = (docId: string) => {
+    setSelectedDocs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(docId)) {
+        newSet.delete(docId)
+      } else {
+        newSet.add(docId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedDocs.size === filteredDocuments.slice(0, displayLimit).length) {
+      setSelectedDocs(new Set())
+    } else {
+      setSelectedDocs(new Set(filteredDocuments.slice(0, displayLimit).map(d => d.id)))
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedDocs.size === 0) return
+
+    const count = selectedDocs.size
+    if (!confirm(`Are you sure you want to delete ${count} document${count > 1 ? 's' : ''}?`)) return
+
+    try {
+      // Delete each selected document
+      for (const docId of selectedDocs) {
+        await axios.delete(`${API_BASE}/documents/${docId}`, {
+          headers: authHeaders
+        })
+      }
+      setSelectedDocs(new Set())
+      loadDocuments()
+    } catch (error) {
+      console.error('Error deleting documents:', error)
+      alert('Failed to delete some documents')
+    }
+  }
+
+  const handleMoveToCategory = async (docId: string, newCategory: string) => {
+    // For now, this updates the local state. In production, you'd call an API to update the category.
+    setDocuments(prev => prev.map(doc =>
+      doc.id === docId ? { ...doc, category: newCategory as Document['category'] } : doc
+    ))
+    setOpenMenuId(null)
+  }
+
+  const handleBulkMoveToCategory = async (newCategory: string) => {
+    if (selectedDocs.size === 0) return
+
+    setDocuments(prev => prev.map(doc =>
+      selectedDocs.has(doc.id) ? { ...doc, category: newCategory as Document['category'] } : doc
+    ))
+    setSelectedDocs(new Set())
   }
 
   const counts = {
@@ -452,29 +528,42 @@ export default function Documents() {
     </svg>
   )
 
-  // Progress Bar Component
-  const ProgressBar = ({ value }: { value: number }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <div style={{
-        flex: 1,
-        height: '8px',
-        backgroundColor: colors.borderLight,
-        borderRadius: '4px',
-        overflow: 'hidden',
-      }}>
+  // Progress Bar Component - shows personal likelihood %
+  // Green = likely work (low %), Orange/Red = likely personal (high %)
+  const ProgressBar = ({ value }: { value: number }) => {
+    // Color gradient: green (0%) -> yellow (50%) -> orange (75%) -> red (100%)
+    let barColor = colors.statusGreen
+    if (value > 75) {
+      barColor = colors.statusRed
+    } else if (value > 50) {
+      barColor = colors.statusOrange
+    } else if (value > 25) {
+      barColor = '#EAB308' // Yellow
+    }
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <div style={{
-          width: `${value}%`,
-          height: '100%',
-          backgroundColor: colors.primary,
+          flex: 1,
+          height: '8px',
+          backgroundColor: colors.borderLight,
           borderRadius: '4px',
-          transition: 'width 0.3s ease',
-        }} />
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            width: `${value}%`,
+            height: '100%',
+            backgroundColor: barColor,
+            borderRadius: '4px',
+            transition: 'width 0.3s ease',
+          }} />
+        </div>
+        <span style={{ fontSize: '13px', color: colors.textPrimary, fontWeight: 500, minWidth: '35px' }}>
+          {value}%
+        </span>
       </div>
-      <span style={{ fontSize: '13px', color: colors.textPrimary, fontWeight: 500, minWidth: '35px' }}>
-        {value}%
-      </span>
-    </div>
-  )
+    )
+  }
 
   // Status Indicator Component
   const StatusIndicator = ({ status, color }: { status: string; color: string }) => (
@@ -491,63 +580,63 @@ export default function Documents() {
     </div>
   )
 
-  // Action Menu Component
-  const ActionMenu = ({ docId, docName }: { docId: string; docName: string }) => (
-    <div style={{ position: 'relative' }} ref={openMenuId === docId ? menuRef : null}>
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpenMenuId(openMenuId === docId ? null : docId)
-        }}
-        style={{
-          width: '32px',
-          height: '32px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'transparent',
-          border: 'none',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          transition: 'background-color 0.15s ease',
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill={colors.textMuted}>
-          <circle cx="8" cy="3" r="1.5"/>
-          <circle cx="8" cy="8" r="1.5"/>
-          <circle cx="8" cy="13" r="1.5"/>
-        </svg>
-      </button>
+  // Action Menu Component - with Move to category options
+  const ActionMenu = ({ docId, docName }: { docId: string; docName: string }) => {
+    const categories = [
+      { label: 'Documents', value: 'Documents' },
+      { label: 'Code', value: 'Code' },
+      { label: 'Meetings', value: 'Meetings' },
+      { label: 'Web Scraper', value: 'Web Scraper' },
+      { label: 'Personal Items', value: 'Personal Items' },
+      { label: 'Other Items', value: 'Other Items' },
+    ]
 
-      {openMenuId === docId && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          right: 0,
-          marginTop: '4px',
-          backgroundColor: colors.cardBg,
-          border: `1px solid ${colors.border}`,
-          borderRadius: '8px',
-          boxShadow: shadows.lg,
-          minWidth: '160px',
-          zIndex: 100,
-          overflow: 'hidden',
-        }}>
-          {[
-            { label: 'View Report', icon: '📊' },
-            { label: 'View Document', icon: '📄', action: () => viewDocument(docId) },
-            { label: 'Add New Version', icon: '➕' },
-            { label: 'Delete', icon: '🗑️', action: () => handleDeleteDocument(docId, docName), danger: true },
-          ].map((item, i) => (
+    return (
+      <div style={{ position: 'relative' }} ref={openMenuId === docId ? menuRef : null}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpenMenuId(openMenuId === docId ? null : docId)
+          }}
+          style={{
+            width: '32px',
+            height: '32px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'transparent',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            transition: 'background-color 0.15s ease',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill={colors.textMuted}>
+            <circle cx="8" cy="3" r="1.5"/>
+            <circle cx="8" cy="8" r="1.5"/>
+            <circle cx="8" cy="13" r="1.5"/>
+          </svg>
+        </button>
+
+        {openMenuId === docId && (
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            right: 0,
+            marginTop: '4px',
+            backgroundColor: colors.cardBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: '8px',
+            boxShadow: shadows.lg,
+            minWidth: '180px',
+            zIndex: 100,
+            overflow: 'hidden',
+          }}>
+            {/* View Options */}
             <button
-              key={i}
-              onClick={(e) => {
-                e.stopPropagation()
-                item.action?.()
-                if (!item.action) setOpenMenuId(null)
-              }}
+              onClick={(e) => { e.stopPropagation(); viewDocument(docId); setOpenMenuId(null) }}
               style={{
                 width: '100%',
                 padding: '10px 14px',
@@ -558,21 +647,51 @@ export default function Documents() {
                 border: 'none',
                 cursor: 'pointer',
                 fontSize: '13px',
-                color: item.danger ? colors.statusRed : colors.textPrimary,
+                color: colors.textPrimary,
                 textAlign: 'left',
                 transition: 'background-color 0.15s ease',
               }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <span>{item.icon}</span>
-              {item.label}
+              <span>📄</span> View Document
             </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+
+            <div style={{ height: '1px', backgroundColor: colors.border, margin: '4px 0' }} />
+
+            {/* Move to Section */}
+            <div style={{ padding: '6px 14px', fontSize: '11px', fontWeight: 600, color: colors.textMuted, textTransform: 'uppercase' }}>
+              Move to
+            </div>
+            {categories.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={(e) => { e.stopPropagation(); handleMoveToCategory(docId, cat.value) }}
+                style={{
+                  width: '100%',
+                  padding: '8px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  color: colors.textSecondary,
+                  textAlign: 'left',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <span>📁</span> {cat.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.pageBg }}>
@@ -586,30 +705,42 @@ export default function Documents() {
         borderBottom: `1px solid ${colors.border}`,
       }}>
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div
+          onClick={() => router.push('/')}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+        >
           <div style={{
-            width: '32px',
-            height: '32px',
+            width: '36px',
+            height: '36px',
             backgroundColor: colors.primary,
-            borderRadius: '6px',
+            borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: '#fff',
             fontWeight: 700,
-            fontSize: '16px',
+            fontSize: '14px',
           }}>
             2B
           </div>
+          <span style={{
+            fontSize: '18px',
+            fontWeight: 700,
+            color: colors.textPrimary,
+            letterSpacing: '-0.02em',
+          }}>
+            Second Brain
+          </span>
         </div>
 
         {/* Center Navigation */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
           {[
+            { label: 'Chat', path: '/' },
             { label: 'Documents', path: '/documents', active: true },
-            { label: 'Chat', path: '/chat' },
             { label: 'Knowledge Gaps', path: '/knowledge-gaps' },
             { label: 'Integrations', path: '/integrations' },
+            { label: 'Training Guides', path: '/training-guides' },
           ].map((item) => (
             <button
               key={item.label}
@@ -624,6 +755,16 @@ export default function Documents() {
                 cursor: 'pointer',
                 borderBottom: item.active ? `2px solid ${colors.primary}` : '2px solid transparent',
                 transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!item.active) {
+                  e.currentTarget.style.color = colors.textPrimary
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!item.active) {
+                  e.currentTarget.style.color = colors.textSecondary
+                }
               }}
             >
               {item.label}
@@ -718,38 +859,6 @@ export default function Documents() {
             Documents
           </h1>
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button
-              onClick={() => router.push('/integrations')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 20px',
-                backgroundColor: 'transparent',
-                border: `1px solid ${colors.primary}`,
-                borderRadius: '8px',
-                color: colors.primary,
-                fontSize: '14px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = colors.primaryLight
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent'
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
-                <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
-                <line x1="6" y1="1" x2="6" y2="4"/>
-                <line x1="10" y1="1" x2="10" y2="4"/>
-                <line x1="14" y1="1" x2="14" y2="4"/>
-              </svg>
-              Connect Tools
-            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
@@ -907,36 +1016,99 @@ export default function Documents() {
                 />
               ))}
             </div>
-            <div style={{ position: 'relative', minWidth: '240px' }}>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search"
-                style={{
-                  width: '100%',
-                  padding: '10px 16px',
-                  paddingLeft: '40px',
-                  backgroundColor: colors.borderLight,
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  color: colors.textPrimary,
-                  outline: 'none',
-                }}
-              />
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={colors.textMuted}
-                strokeWidth="2"
-                style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
-              >
-                <circle cx="11" cy="11" r="8"/>
-                <path d="m21 21-4.35-4.35"/>
-              </svg>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Bulk Actions - show when items selected */}
+              {selectedDocs.size > 0 && (
+                <>
+                  <span style={{ fontSize: '13px', color: colors.textSecondary }}>
+                    {selectedDocs.size} selected
+                  </span>
+                  {/* Bulk Move Dropdown */}
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleBulkMoveToCategory(e.target.value)
+                        e.target.value = ''
+                      }
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: colors.cardBg,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      color: colors.textSecondary,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="">Move to...</option>
+                    <option value="Documents">Documents</option>
+                    <option value="Code">Code</option>
+                    <option value="Meetings">Meetings</option>
+                    <option value="Web Scraper">Web Scraper</option>
+                    <option value="Personal Items">Personal Items</option>
+                    <option value="Other Items">Other Items</option>
+                  </select>
+                  {/* Bulk Delete Button */}
+                  <button
+                    onClick={handleBulkDelete}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      backgroundColor: colors.statusRed,
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#DC2626'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = colors.statusRed}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                    Delete
+                  </button>
+                </>
+              )}
+              {/* Search */}
+              <div style={{ position: 'relative', minWidth: '200px' }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search"
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    paddingLeft: '40px',
+                    backgroundColor: colors.borderLight,
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: colors.textPrimary,
+                    outline: 'none',
+                  }}
+                />
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.textMuted}
+                  strokeWidth="2"
+                  style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+                >
+                  <circle cx="11" cy="11" r="8"/>
+                  <path d="m21 21-4.35-4.35"/>
+                </svg>
+              </div>
             </div>
           </div>
 
@@ -994,7 +1166,12 @@ export default function Documents() {
                 borderBottom: `1px solid ${colors.border}`,
               }}>
                 <div>
-                  <input type="checkbox" style={{ cursor: 'pointer' }} />
+                  <input
+                    type="checkbox"
+                    checked={selectedDocs.size === filteredDocuments.slice(0, displayLimit).length && filteredDocuments.length > 0}
+                    onChange={toggleSelectAll}
+                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                  />
                 </div>
                 {[
                   { label: 'Document', field: 'name' },
@@ -1002,7 +1179,7 @@ export default function Documents() {
                   { label: 'Source', field: 'source_type' },
                   { label: 'Date', field: 'created' },
                   { label: 'Status', field: 'classification' },
-                  { label: 'Score', field: 'score' },
+                  { label: 'Personal %', field: 'score' },
                 ].map((col) => (
                   <button
                     key={col.field}
@@ -1032,6 +1209,7 @@ export default function Documents() {
               <div>
                 {filteredDocuments.slice(0, displayLimit).map((doc) => {
                   const status = getStatusInfo(doc.classification, doc.source_type)
+                  const isSelected = selectedDocs.has(doc.id)
                   return (
                     <div
                       key={doc.id}
@@ -1044,13 +1222,23 @@ export default function Documents() {
                         borderBottom: `1px solid ${colors.borderLight}`,
                         transition: 'background-color 0.15s ease',
                         cursor: 'pointer',
+                        backgroundColor: isSelected ? colors.primaryLight : 'transparent',
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.borderLight}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = colors.borderLight
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent'
+                      }}
                       onClick={() => viewDocument(doc.id)}
                     >
                       <div onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" style={{ cursor: 'pointer' }} />
+                        <input
+                          type="checkbox"
+                          checked={selectedDocs.has(doc.id)}
+                          onChange={() => toggleDocSelection(doc.id)}
+                          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                        />
                       </div>
 
                       {/* Document Name */}
