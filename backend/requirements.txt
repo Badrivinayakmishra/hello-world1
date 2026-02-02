@@ -78,3 +78,4 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0
 
 # Web Scraper - Pure Playwright (no crawl4ai dependency hell)
 playwright>=1.40.0
+nest-asyncio==1.6.0  # Allow nested event loops (fixes gevent + asyncio conflict)
