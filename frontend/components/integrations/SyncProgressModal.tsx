@@ -53,11 +53,16 @@ export default function SyncProgressModal({
     const elapsed = (now - startTimeRef.current) / 1000 // seconds
     setElapsedTime(elapsed)
 
+    // Calculate actual progress percentage (backend might send 0)
+    const actualPercent = progress.total_items > 0
+      ? (progress.processed_items / progress.total_items) * 100
+      : progress.percent_complete
+
     // Track progress history for better estimation
-    if (progress.percent_complete > 0) {
+    if (actualPercent > 0 || progress.processed_items > 0) {
       progressHistoryRef.current.push({
         time: now,
-        percent: progress.percent_complete
+        percent: actualPercent
       })
 
       // Keep last 10 data points
@@ -75,22 +80,29 @@ export default function SyncProgressModal({
 
         if (percentChange > 0 && timeChange > 0) {
           const percentPerSecond = percentChange / timeChange
-          const remainingPercent = 100 - progress.percent_complete
+          const remainingPercent = 100 - actualPercent
           const estimatedSeconds = remainingPercent / percentPerSecond
 
           // Format time
           if (estimatedSeconds < 60) {
-            setEstimatedTime(`~${Math.ceil(estimatedSeconds)}s remaining`)
+            setEstimatedTime(`Est: ~${Math.ceil(estimatedSeconds)}s`)
           } else if (estimatedSeconds < 3600) {
             const mins = Math.ceil(estimatedSeconds / 60)
-            setEstimatedTime(`~${mins} min remaining`)
+            setEstimatedTime(`Est: ~${mins} min`)
           } else {
             const hours = Math.floor(estimatedSeconds / 3600)
             const mins = Math.ceil((estimatedSeconds % 3600) / 60)
-            setEstimatedTime(`~${hours}h ${mins}m remaining`)
+            setEstimatedTime(`Est: ~${hours}h ${mins}m`)
           }
+        } else if (elapsed > 2) {
+          // If we have elapsed time but no rate change yet, show "Calculating..."
+          setEstimatedTime('Est: Calculating...')
         }
+      } else if (elapsed > 2) {
+        setEstimatedTime('Est: Calculating...')
       }
+    } else if (elapsed > 2) {
+      setEstimatedTime('Est: Calculating...')
     }
   }, [progress])
 
@@ -372,7 +384,15 @@ export default function SyncProgressModal({
     )
   }
 
-  const progressPercent = Math.min(progress.percent_complete || 0, 100)
+  // Calculate progress percentage - use backend value or calculate from items
+  const progressPercent = Math.min(
+    progress.percent_complete > 0
+      ? progress.percent_complete
+      : progress.total_items > 0
+        ? (progress.processed_items / progress.total_items) * 100
+        : 0,
+    100
+  )
 
   return (
     <div style={{
