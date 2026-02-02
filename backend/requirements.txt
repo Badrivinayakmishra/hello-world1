@@ -2,7 +2,7 @@
 flask==3.0.0
 flask-cors==4.0.0
 gunicorn==21.2.0
-gevent>=24.2.1
+gevent==24.2.1
 
 # Database
 sqlalchemy==2.0.23
@@ -23,12 +23,12 @@ llama-parse==0.4.0
 llama-index-core==0.10.43  # Pinned for compatibility with protobuf 3.20.3
 
 # Data Processing
-pandas>=2.2.0  # 2.2.0+ supports numpy 2.x (required by crawl4ai)
-numpy>=2.0.0  # crawl4ai requires numpy 2.x
+pandas==2.1.4
+numpy==1.26.3  # Must stay on 1.x for spaCy/thinc binary compatibility
 
 # Content Generation
 python-pptx==0.6.23
-Pillow>=10.2.0
+Pillow==10.2.0
 
 # Office Files
 openpyxl==3.1.2
@@ -97,7 +97,6 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0
 # Note: JavaScript rendering adds 3-5x overhead. Only enable if needed.
 # ============================================================================
 
-# Crawl4AI - LLM-friendly web crawler (59k+ GitHub stars)
-# https://github.com/unclecode/crawl4ai
-# Note: crawl4ai includes playwright, so don't install it separately
-crawl4ai>=0.3.0
+# Web Scraper uses BeautifulSoup + requests (included above)
+# Crawl4AI removed due to numpy 2.x requirement conflicting with spaCy
+# The webscraper fallback works well for most static websites
