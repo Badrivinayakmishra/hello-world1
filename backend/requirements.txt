@@ -2,6 +2,7 @@
 flask==3.0.0
 flask-cors==4.0.0
 gunicorn==21.2.0
+gevent==24.2.1
 
 # Database
 sqlalchemy==2.0.23
