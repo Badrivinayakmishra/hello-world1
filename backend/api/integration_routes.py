@@ -2209,6 +2209,9 @@ def _run_connector_sync(
     sync_id: str = None
 ):
     """Background sync function with progress tracking"""
+    print(f"[Sync] === _run_connector_sync START ===")
+    print(f"[Sync] connector_type={connector_type}, sync_id={sync_id}")
+
     import time
     from services.sync_progress_service import get_sync_progress_service
     from services.email_notification_service import get_email_service
@@ -2240,10 +2243,14 @@ def _run_connector_sync(
             Connector.id == connector_id
         ).first()
 
+        print(f"[Sync] Connector found: {connector is not None}")
+
         if not connector:
             sync_progress[progress_key]["status"] = "error"
             sync_progress[progress_key]["error"] = "Connector not found"
             return
+
+        print(f"[Sync] Connector settings: {connector.settings}")
 
         try:
             # Get connector class
