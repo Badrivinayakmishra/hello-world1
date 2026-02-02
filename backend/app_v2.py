@@ -266,6 +266,17 @@ def health_check():
             health_status["checks"]["azure_openai"] = f"warning: {str(e)}"
             log_warning("HealthCheck", "Azure OpenAI check failed", error=str(e))
 
+    # 4. Playwright check (for webscraper)
+    try:
+        from connectors.webscraper_connector import PLAYWRIGHT_AVAILABLE, PLAYWRIGHT_BROWSERS_INSTALLED, PLAYWRIGHT_BROWSER_PATH
+        health_status["checks"]["playwright"] = {
+            "available": PLAYWRIGHT_AVAILABLE,
+            "browsers_installed": PLAYWRIGHT_BROWSERS_INSTALLED,
+            "browser_path": PLAYWRIGHT_BROWSER_PATH
+        }
+    except Exception as e:
+        health_status["checks"]["playwright"] = f"error: {str(e)}"
+
     # Response time
     health_status["response_time_ms"] = round((time.time() - start_time) * 1000, 2)
 
@@ -273,6 +284,94 @@ def health_check():
     status_code = 200 if health_status["status"] == "healthy" else 503
 
     return jsonify(health_status), status_code
+
+
+@app.route('/api/diagnostics/playwright', methods=['GET'])
+def playwright_diagnostics():
+    """
+    Diagnostic endpoint to test Playwright browser launch.
+    Returns detailed information about Playwright installation and browser availability.
+    """
+    import asyncio
+
+    diagnostics = {
+        "playwright_import": False,
+        "browsers_installed": False,
+        "browser_launch_test": False,
+        "errors": [],
+        "details": {}
+    }
+
+    # Check import
+    try:
+        from connectors.webscraper_connector import (
+            PLAYWRIGHT_AVAILABLE,
+            PLAYWRIGHT_BROWSERS_INSTALLED,
+            PLAYWRIGHT_BROWSER_PATH
+        )
+        diagnostics["playwright_import"] = PLAYWRIGHT_AVAILABLE
+        diagnostics["browsers_installed"] = PLAYWRIGHT_BROWSERS_INSTALLED
+        diagnostics["details"]["browser_path"] = PLAYWRIGHT_BROWSER_PATH
+    except Exception as e:
+        diagnostics["errors"].append(f"Import error: {str(e)}")
+
+    # Check environment
+    import os
+    import glob
+
+    playwright_cache = os.path.expanduser("~/.cache/ms-playwright")
+    diagnostics["details"]["playwright_cache"] = playwright_cache
+    diagnostics["details"]["cache_exists"] = os.path.exists(playwright_cache)
+
+    if os.path.exists(playwright_cache):
+        try:
+            contents = os.listdir(playwright_cache)
+            diagnostics["details"]["cache_contents"] = contents
+        except Exception as e:
+            diagnostics["errors"].append(f"Cache read error: {str(e)}")
+
+    # Check for Chromium specifically
+    chromium_patterns = [
+        f"{playwright_cache}/chromium-*/chrome-linux/chrome",
+        "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+    ]
+    for pattern in chromium_patterns:
+        matches = glob.glob(pattern)
+        if matches:
+            diagnostics["details"]["chromium_found"] = matches[0]
+            break
+
+    # Try to launch browser (expensive operation, use with caution)
+    if diagnostics["playwright_import"]:
+        try:
+            from playwright.async_api import async_playwright
+
+            async def test_browser():
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    version = browser.version
+                    await browser.close()
+                    return version
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                browser_version = loop.run_until_complete(test_browser())
+                diagnostics["browser_launch_test"] = True
+                diagnostics["details"]["browser_version"] = browser_version
+            finally:
+                loop.close()
+
+        except Exception as e:
+            diagnostics["errors"].append(f"Browser launch error: {type(e).__name__}: {str(e)}")
+            import traceback
+            diagnostics["details"]["traceback"] = traceback.format_exc()
+
+    return jsonify(diagnostics)
+
 
 # ============================================================================
 # SEARCH ENDPOINT (Enhanced RAG with Reranking, MMR, Query Expansion)

@@ -36,6 +36,70 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     print("[WebScraper] Playwright not installed. Run: pip install playwright && playwright install chromium")
 
+# Check if Playwright browsers are installed
+PLAYWRIGHT_BROWSERS_INSTALLED = False
+PLAYWRIGHT_BROWSER_PATH = None
+if PLAYWRIGHT_AVAILABLE:
+    try:
+        import subprocess
+        import shutil
+
+        # Check for common Chromium locations
+        possible_paths = [
+            # Playwright managed browsers
+            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+            "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+            # System chromium
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/google-chrome",
+        ]
+
+        # Also try to get Playwright's browser path programmatically
+        try:
+            result = subprocess.run(
+                ["python", "-c", "from playwright._impl._driver import compute_driver_executable; print(compute_driver_executable())"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                print(f"[WebScraper] Playwright driver path: {result.stdout.strip()}")
+        except Exception as e:
+            print(f"[WebScraper] Could not determine Playwright driver path: {e}")
+
+        # Check for browser executable
+        import glob
+        for pattern in possible_paths:
+            matches = glob.glob(pattern)
+            if matches:
+                PLAYWRIGHT_BROWSER_PATH = matches[0]
+                PLAYWRIGHT_BROWSERS_INSTALLED = True
+                print(f"[WebScraper] Found Chromium at: {PLAYWRIGHT_BROWSER_PATH}")
+                break
+
+        if not PLAYWRIGHT_BROWSERS_INSTALLED:
+            print("[WebScraper] WARNING: Playwright browsers not found. Run: playwright install chromium")
+            # Try to check what's installed
+            try:
+                result = subprocess.run(
+                    ["playwright", "install", "--help"],
+                    capture_output=True, text=True, timeout=10
+                )
+                print(f"[WebScraper] Playwright CLI available")
+
+                # List installed browsers
+                result = subprocess.run(
+                    ["ls", "-la", os.path.expanduser("~/.cache/ms-playwright/")],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.stdout:
+                    print(f"[WebScraper] Playwright cache contents:\n{result.stdout}")
+                else:
+                    print(f"[WebScraper] Playwright cache empty or not found")
+            except Exception as e:
+                print(f"[WebScraper] Could not check Playwright installation: {e}")
+    except Exception as e:
+        print(f"[WebScraper] Error checking Playwright browsers: {e}")
+
 # Fallback imports
 try:
     import requests
@@ -280,9 +344,15 @@ class WebScraperConnector(BaseConnector):
             print(f"[WebScraper] Using {len(sitemap_urls)} URLs from sitemap")
 
         if PLAYWRIGHT_AVAILABLE:
-            documents = await self._crawl_with_playwright(
-                start_url, max_depth, max_pages, exclude_patterns, sitemap_urls
-            )
+            try:
+                documents = await self._crawl_with_playwright(
+                    start_url, max_depth, max_pages, exclude_patterns, sitemap_urls
+                )
+            except Exception as e:
+                print(f"[WebScraper] FATAL ERROR in Playwright crawl: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+                raise  # Re-raise to let the caller handle it
         else:
             documents = await self._crawl_fallback(
                 start_url, max_depth, max_pages, exclude_patterns, sitemap_urls
@@ -321,17 +391,58 @@ class WebScraperConnector(BaseConnector):
                 urls_to_crawl.append((url, 0))
         urls_to_crawl.append((start_url, 0))
 
+        print(f"[WebScraper] Attempting to launch Playwright browser...")
+
         async with async_playwright() as p:
-            # Launch with stealth arguments
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ]
-            )
+            # Try to launch with various fallback options
+            browser = None
+            launch_error = None
+
+            # Attempt 1: Standard headless with stealth args
+            try:
+                print(f"[WebScraper] Attempting standard launch...")
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--disable-setuid-sandbox",
+                        "--single-process",  # May help on memory-constrained systems
+                    ]
+                )
+                print(f"[WebScraper] Browser launched successfully!")
+            except Exception as e:
+                launch_error = e
+                print(f"[WebScraper] Standard launch failed: {type(e).__name__}: {e}")
+
+            # Attempt 2: Try with channel=chromium (system chromium)
+            if not browser:
+                try:
+                    print(f"[WebScraper] Attempting launch with channel=chromium...")
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        channel="chromium",
+                        args=["--no-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    print(f"[WebScraper] Browser launched with channel=chromium!")
+                except Exception as e:
+                    print(f"[WebScraper] Channel launch failed: {type(e).__name__}: {e}")
+
+            # Attempt 3: Minimal args launch
+            if not browser:
+                try:
+                    print(f"[WebScraper] Attempting minimal launch...")
+                    browser = await p.chromium.launch(headless=True)
+                    print(f"[WebScraper] Browser launched with minimal config!")
+                except Exception as e:
+                    print(f"[WebScraper] Minimal launch failed: {type(e).__name__}: {e}")
+
+            if not browser:
+                error_msg = f"Failed to launch browser after all attempts. Last error: {launch_error}"
+                print(f"[WebScraper] FATAL: {error_msg}")
+                raise RuntimeError(error_msg)
 
             context = await browser.new_context(
                 user_agent=self.USER_AGENT,
