@@ -8,7 +8,7 @@ services:
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_sm
+    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_sm && playwright install --with-deps chromium
     startCommand: gunicorn app_v2:app --bind 0.0.0.0:$PORT --workers 2 --worker-class gevent --timeout 600 --graceful-timeout 30
     healthCheckPath: /api/health
     envVars:
