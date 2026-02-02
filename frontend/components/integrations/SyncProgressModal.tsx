@@ -457,7 +457,7 @@ export default function SyncProgressModal({
             color: '#081028',
             margin: 0
           }}>
-            Syncing {connectorType.charAt(0).toUpperCase() + connectorType.slice(1)}
+            Syncing {connectorType === 'webscraper' ? 'Website' : connectorType.charAt(0).toUpperCase() + connectorType.slice(1)}
           </h2>
           {(progress.status === 'complete' || progress.status === 'error' || connectionError) && (
             <button
@@ -567,16 +567,18 @@ export default function SyncProgressModal({
           </div>
         )}
 
-        {/* Progress Bar */}
-        {progress.total_items > 0 && (
-          <div style={{ marginBottom: '24px' }}>
-            <div style={{
-              width: '100%',
-              height: '8px',
-              backgroundColor: '#E5E7EB',
-              borderRadius: '999px',
-              overflow: 'hidden'
-            }}>
+        {/* Progress Bar - Always show, with indeterminate state when total unknown */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{
+            width: '100%',
+            height: '8px',
+            backgroundColor: '#E5E7EB',
+            borderRadius: '999px',
+            overflow: 'hidden',
+            position: 'relative'
+          }}>
+            {progress.total_items > 0 ? (
+              // Determinate progress bar
               <div style={{
                 width: `${progressPercent}%`,
                 height: '100%',
@@ -584,20 +586,59 @@ export default function SyncProgressModal({
                 transition: 'width 0.3s ease-out',
                 borderRadius: '999px'
               }}></div>
-            </div>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: '8px',
-              fontFamily: '"Work Sans", sans-serif',
-              fontSize: '13px',
-              color: '#6B7280'
-            }}>
-              <span>{progress.processed_items} / {progress.total_items} documents</span>
-              <span style={{ fontWeight: 600 }}>{Math.round(progressPercent)}%</span>
-            </div>
+            ) : progress.status !== 'complete' && progress.status !== 'error' ? (
+              // Indeterminate progress bar (animated)
+              <>
+                <style>{`
+                  @keyframes indeterminate {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(400%); }
+                  }
+                `}</style>
+                <div style={{
+                  width: '25%',
+                  height: '100%',
+                  backgroundColor: '#3B82F6',
+                  borderRadius: '999px',
+                  animation: 'indeterminate 1.5s ease-in-out infinite'
+                }}></div>
+              </>
+            ) : (
+              // Complete or error with no items
+              <div style={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: progress.status === 'error' ? '#DC2626' : '#10B981',
+                borderRadius: '999px'
+              }}></div>
+            )}
           </div>
-        )}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginTop: '8px',
+            fontFamily: '"Work Sans", sans-serif',
+            fontSize: '13px',
+            color: '#6B7280'
+          }}>
+            {progress.total_items > 0 ? (
+              <>
+                <span>{progress.processed_items} / {progress.total_items} documents</span>
+                <span style={{ fontWeight: 600 }}>{Math.round(progressPercent)}%</span>
+              </>
+            ) : progress.processed_items > 0 ? (
+              <>
+                <span>{progress.processed_items} documents processed</span>
+                <span style={{ fontWeight: 600 }}>Processing...</span>
+              </>
+            ) : (
+              <>
+                <span>Discovering content...</span>
+                <span style={{ fontWeight: 600 }}>{progress.status === 'complete' ? '100%' : 'Starting...'}</span>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Live Stats */}
         <div style={{

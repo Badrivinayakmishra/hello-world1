@@ -1581,11 +1581,13 @@ def webscraper_configure():
     Request body:
     {
         "start_url": "https://example.com",  // Required
-        "priority_paths": ["/resources/", "/protocols/"],  // Optional
-        "max_depth": 3,  // Optional, default 3
-        "max_pages": 50,  // Optional, default 50
+        "priority_paths": ["/resources/", "/protocols/"],  // Optional - paths to prioritize
+        "max_depth": 2,  // Optional, default 2
+        "max_pages": 20,  // Optional, default 20
         "include_pdfs": true,  // Optional, default true
-        "rate_limit_delay": 1.0  // Optional, default 1.0
+        "wait_for_js": true,  // Optional, default true - render JavaScript
+        "screenshot": true,  // Optional, default true - capture screenshots
+        "crawl_delay": 1.0  // Optional, default 1.0 - seconds between requests
     }
     """
     try:
@@ -1598,15 +1600,28 @@ def webscraper_configure():
                 "error": "start_url is required"
             }), 400
 
-        # Validate URL
+        # Validate URL format
         if not start_url.startswith(("http://", "https://")):
             start_url = "https://" + start_url
 
+        # Validate URL is reachable (basic check)
+        from urllib.parse import urlparse
+        parsed = urlparse(start_url)
+        if not parsed.netloc:
+            return jsonify({
+                "success": False,
+                "error": "Invalid URL format"
+            }), 400
+
+        # Extract settings with defaults matching connector
         priority_paths = data.get("priority_paths", [])
-        max_depth = data.get("max_depth", 3)
-        max_pages = data.get("max_pages", 50)
+        max_depth = min(max(int(data.get("max_depth", 2)), 1), 5)  # Clamp 1-5
+        max_pages = min(max(int(data.get("max_pages", 20)), 1), 500)  # Clamp 1-500
         include_pdfs = data.get("include_pdfs", True)
-        rate_limit_delay = data.get("rate_limit_delay", 1.0)
+        wait_for_js = data.get("wait_for_js", True)
+        screenshot = data.get("screenshot", True)
+        # Support both rate_limit_delay (frontend) and crawl_delay (connector)
+        crawl_delay = float(data.get("crawl_delay", data.get("rate_limit_delay", 1.0)))
 
         db = get_db()
         try:
@@ -1616,15 +1631,30 @@ def webscraper_configure():
                 Connector.connector_type == ConnectorType.WEBSCRAPER
             ).first()
 
+            # Settings matching WebScraperConnector.OPTIONAL_SETTINGS
             settings = {
                 "start_url": start_url,
-                "priority_paths": priority_paths,
+                "priority_paths": priority_paths,  # Not used by connector yet, but stored
                 "max_depth": max_depth,
                 "max_pages": max_pages,
                 "include_pdfs": include_pdfs,
-                "rate_limit_delay": rate_limit_delay,
-                "allowed_extensions": [".html", ".htm", ".pdf", ""],
-                "exclude_patterns": ["#", "mailto:", "tel:"]
+                "wait_for_js": wait_for_js,
+                "screenshot": screenshot,
+                "respect_robots_txt": True,
+                "use_sitemap": True,
+                "crawl_delay": crawl_delay,
+                "timeout": 30,
+                "exclude_patterns": [
+                    "#", "mailto:", "tel:", "javascript:", "data:", "file:",
+                    "login", "signin", "signup", "register", "logout", "logoff", "signout",
+                    "/auth/", "/account/", "/user/", "/profile/", "/dashboard/", "/settings/",
+                    "/admin/", "/password", "/forgot", "/reset", "/verify",
+                    "cart", "checkout", "/basket", "/order", "/payment", "/billing",
+                    "/search", "?search=", "?q=", "?query=", "?sort=", "?filter=",
+                    "?utm_", "?fbclid=", "?gclid=", "?ref=", "?session",
+                    "/api/", "/v1/", "/v2/", "/graphql", "/webhook",
+                    "/test/", "/staging/", "/dev/", "/debug",
+                ]
             }
 
             is_first_connection = connector is None

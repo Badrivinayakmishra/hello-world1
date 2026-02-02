@@ -1322,7 +1322,8 @@ const WebScraperConfigModal = ({
   isOpen,
   onClose,
   onSubmit,
-  isLoading
+  isLoading,
+  existingUrl
 }: {
   isOpen: boolean
   onClose: () => void
@@ -1333,11 +1334,63 @@ const WebScraperConfigModal = ({
     maxPages: number
   }) => void
   isLoading: boolean
+  existingUrl?: string
 }) => {
-  const [startUrl, setStartUrl] = useState('')
+  const [startUrl, setStartUrl] = useState(existingUrl || '')
   const [priorityPaths, setPriorityPaths] = useState('')
-  const [maxDepth, setMaxDepth] = useState(3)
-  const [maxPages, setMaxPages] = useState(50)
+  const [maxDepth, setMaxDepth] = useState(2)
+  const [maxPages, setMaxPages] = useState(20)
+  const [urlError, setUrlError] = useState<string | null>(null)
+
+  // Update startUrl when existingUrl changes (for editing)
+  React.useEffect(() => {
+    if (existingUrl) {
+      setStartUrl(existingUrl)
+    }
+  }, [existingUrl])
+
+  // Validate URL
+  const validateUrl = (url: string): boolean => {
+    if (!url.trim()) {
+      setUrlError('URL is required')
+      return false
+    }
+
+    // Add https if missing
+    let testUrl = url.trim()
+    if (!testUrl.startsWith('http://') && !testUrl.startsWith('https://')) {
+      testUrl = 'https://' + testUrl
+    }
+
+    try {
+      const parsed = new URL(testUrl)
+      if (!parsed.hostname || !parsed.hostname.includes('.')) {
+        setUrlError('Please enter a valid domain (e.g., example.com)')
+        return false
+      }
+      setUrlError(null)
+      return true
+    } catch {
+      setUrlError('Please enter a valid URL')
+      return false
+    }
+  }
+
+  const handleSubmit = () => {
+    if (!validateUrl(startUrl)) return
+
+    const paths = priorityPaths
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+
+    onSubmit({
+      startUrl: startUrl.trim(),
+      priorityPaths: paths,
+      maxDepth,
+      maxPages
+    })
+  }
 
   if (!isOpen) return null
 
@@ -1401,17 +1454,32 @@ const WebScraperConfigModal = ({
           <input
             type="text"
             value={startUrl}
-            onChange={e => setStartUrl(e.target.value)}
-            placeholder="https://www.pellegrini.mcdb.ucla.edu/"
+            onChange={e => {
+              setStartUrl(e.target.value)
+              if (urlError) setUrlError(null)
+            }}
+            onBlur={() => startUrl && validateUrl(startUrl)}
+            placeholder="https://example.com or example.com"
             style={{
               width: '100%',
               padding: '12px',
               borderRadius: '8px',
-              border: '1px solid #D4D4D8',
+              border: `1px solid ${urlError ? '#DC2626' : '#D4D4D8'}`,
               fontSize: '14px',
-              fontFamily: 'Inter, sans-serif'
+              fontFamily: 'Inter, sans-serif',
+              outline: 'none'
             }}
           />
+          {urlError && (
+            <p style={{
+              fontFamily: 'Inter, sans-serif',
+              fontSize: '12px',
+              color: '#DC2626',
+              marginTop: '4px'
+            }}>
+              {urlError}
+            </p>
+          )}
         </div>
 
         {/* Priority Paths */}
@@ -1458,7 +1526,7 @@ const WebScraperConfigModal = ({
             display: 'block',
             marginBottom: '8px'
           }}>
-            Maximum Depth: {maxDepth}
+            Maximum Depth: {maxDepth} {maxDepth === 1 ? 'level' : 'levels'}
           </label>
           <input
             type="range"
@@ -1466,16 +1534,19 @@ const WebScraperConfigModal = ({
             onChange={e => setMaxDepth(parseInt(e.target.value))}
             min="1"
             max="5"
-            style={{ width: '100%' }}
+            style={{ width: '100%', cursor: 'pointer' }}
           />
-          <p style={{
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
             fontFamily: 'Inter, sans-serif',
-            fontSize: '12px',
-            color: '#71717A',
-            marginTop: '4px'
+            fontSize: '11px',
+            color: '#9CA3AF',
+            marginTop: '2px'
           }}>
-            How many links deep to follow (1-5)
-          </p>
+            <span>Shallow (faster)</span>
+            <span>Deep (more content)</span>
+          </div>
         </div>
 
         {/* Max Pages */}
@@ -1493,19 +1564,22 @@ const WebScraperConfigModal = ({
             type="range"
             value={maxPages}
             onChange={e => setMaxPages(parseInt(e.target.value))}
-            min="10"
-            max="200"
-            step="10"
-            style={{ width: '100%' }}
+            min="5"
+            max="100"
+            step="5"
+            style={{ width: '100%', cursor: 'pointer' }}
           />
-          <p style={{
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
             fontFamily: 'Inter, sans-serif',
-            fontSize: '12px',
-            color: '#71717A',
-            marginTop: '4px'
+            fontSize: '11px',
+            color: '#9CA3AF',
+            marginTop: '2px'
           }}>
-            Maximum number of pages to crawl (10-200)
-          </p>
+            <span>5 pages</span>
+            <span>100 pages</span>
+          </div>
         </div>
 
         {/* Info Box */}
@@ -1519,9 +1593,14 @@ const WebScraperConfigModal = ({
             fontFamily: 'Inter, sans-serif',
             fontSize: '13px',
             color: '#1E40AF',
-            margin: 0
+            margin: 0,
+            lineHeight: '1.5'
           }}>
-            <strong>Note:</strong> Only pages from the same domain will be crawled. PDFs are automatically extracted.
+            <strong>Features:</strong><br />
+            - JavaScript rendering for dynamic pages<br />
+            - Screenshots captured for each page<br />
+            - Same-domain only, respects robots.txt<br />
+            - Clean markdown extraction (LLM-ready)
           </p>
         </div>
 
@@ -1546,24 +1625,13 @@ const WebScraperConfigModal = ({
             Cancel
           </button>
           <button
-            onClick={() => {
-              const paths = priorityPaths
-                .split(',')
-                .map(p => p.trim())
-                .filter(p => p.length > 0)
-              onSubmit({
-                startUrl,
-                priorityPaths: paths,
-                maxDepth,
-                maxPages
-              })
-            }}
-            disabled={!startUrl.trim() || isLoading}
+            onClick={handleSubmit}
+            disabled={!startUrl.trim() || isLoading || !!urlError}
             style={{
               padding: '10px 20px',
               borderRadius: '8px',
               border: 'none',
-              backgroundColor: !startUrl.trim() ? '#9ca3af' : '#10B981',
+              backgroundColor: (!startUrl.trim() || !!urlError) ? '#9ca3af' : '#10B981',
               color: '#fff',
               fontSize: '14px',
               fontWeight: 500,
@@ -2647,6 +2715,18 @@ export default function Integrations() {
             return int
           })
         )
+
+        // Store webscraper settings if configured
+        const webscraper = apiIntegrations.find((a: any) => a.type === 'webscraper')
+        if (webscraper?.settings?.start_url) {
+          setWebscraperUrl(webscraper.settings.start_url)
+          if (webscraper.settings.max_depth) {
+            setWebscraperMaxDepth(webscraper.settings.max_depth)
+          }
+          if (webscraper.settings.max_pages) {
+            setWebscraperMaxPages(webscraper.settings.max_pages)
+          }
+        }
       }
     } catch (error) {
       console.error('Error checking integration statuses:', error)
@@ -3019,19 +3099,26 @@ export default function Integrations() {
           max_depth: config.maxDepth,
           max_pages: config.maxPages,
           include_pdfs: true,
-          rate_limit_delay: 1.0
+          wait_for_js: true,  // Enable JavaScript rendering
+          screenshot: true,   // Enable screenshot capture
+          crawl_delay: 1.0    // Seconds between requests
         },
         { headers: { Authorization: `Bearer ${authToken}` } }
       )
 
       if (response.data.success) {
         setShowWebScraperModal(false)
+        // Update local state with configured URL
+        setWebscraperUrl(config.startUrl)
+        setWebscraperMaxDepth(config.maxDepth)
+        setWebscraperMaxPages(config.maxPages)
+
         setIntegrationsState(prev =>
           prev.map(int =>
             int.id === 'webscraper' ? { ...int, connected: true } : int
           )
         )
-        setSyncStatus('Website Scraper configured! Crawling website...')
+        setSyncStatus('Website configured! Starting crawl...')
         // Auto-sync starts on backend, poll for progress
         setTimeout(() => startSyncWithProgress('webscraper'), 500)
       } else {
@@ -3277,6 +3364,7 @@ export default function Integrations() {
         onClose={() => setShowWebScraperModal(false)}
         onSubmit={submitWebScraperConfig}
         isLoading={isConfiguringWebscraper}
+        existingUrl={webscraperUrl}
       />
 
       {/* Slack Channel Selection Modal */}

@@ -99,3 +99,7 @@ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0
 
 # Web Scraper - Screenshot/PDF Capture
 playwright==1.40.0
+
+# Crawl4AI - LLM-friendly web crawler (58k+ GitHub stars)
+# https://github.com/unclecode/crawl4ai
+crawl4ai>=0.3.0

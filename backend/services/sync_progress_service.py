@@ -152,21 +152,35 @@ class SyncProgressService:
         if current_item:
             progress.current_item = current_item
 
-        # Emit event for significant milestones or every 10%
+        # Emit event for significant milestones
+        should_emit = False
+
         if progress.total_items > 0:
             percent = progress.percent_complete
-            # Emit at 10%, 25%, 50%, 75%, 90% milestones
-            if int(percent) in [10, 25, 50, 75, 90]:
-                prev_percent = ((progress.processed_items - 1) / progress.total_items) * 100
-                if int(prev_percent) != int(percent):
-                    self._emit_event(sync_id, 'progress')
-            # Also emit every 10 items for small syncs
-            elif progress.processed_items % 10 == 0:
-                self._emit_event(sync_id, 'progress')
+            prev_processed = progress.processed_items - 1
+            prev_percent = (prev_processed / progress.total_items) * 100 if prev_processed > 0 else 0
+
+            # Check if we crossed any milestone (10%, 25%, 50%, 75%, 90%)
+            milestones = [10, 25, 50, 75, 90]
+            for milestone in milestones:
+                if prev_percent < milestone <= percent:
+                    should_emit = True
+                    break
+
+            # Also emit every 5 items for responsive feedback
+            if not should_emit and progress.processed_items % 5 == 0:
+                should_emit = True
+
+            # Always emit on first and last item
+            if progress.processed_items == 1 or progress.processed_items == progress.total_items:
+                should_emit = True
         else:
-            # If total unknown, emit every 5 items
-            if progress.processed_items % 5 == 0:
-                self._emit_event(sync_id, 'progress')
+            # If total unknown, emit every 3 items for more responsive feedback
+            if progress.processed_items % 3 == 0 or progress.processed_items == 1:
+                should_emit = True
+
+        if should_emit:
+            self._emit_event(sync_id, 'progress')
 
     def complete_sync(
         self,

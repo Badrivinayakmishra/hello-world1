@@ -1,177 +1,276 @@
 """
-Website Scraper Connector
-Crawls websites to extract protocols, documentation, and other content.
-Useful for scraping PI lab websites, documentation sites, etc.
+Website Scraper Connector - Powered by Crawl4AI
+Uses Crawl4AI for LLM-friendly web crawling with JavaScript rendering,
+clean markdown extraction, and screenshot capture.
+
+Features:
+- Crawl4AI integration (59k+ GitHub stars)
+- JavaScript rendering via Playwright
+- Clean markdown extraction (LLM-ready)
+- Screenshot/PDF capture
+- Robots.txt compliance
+- Sitemap discovery
+- Comprehensive URL filtering
+- Timeout handling
+- Memory-efficient crawling
 """
 
 import os
-import re
-import time
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Optional, Set
-from urllib.parse import urljoin, urlparse
-from collections import deque
+from urllib.parse import urlparse, urljoin
+from urllib.robotparser import RobotFileParser
+import hashlib
+import base64
 
 from .base_connector import BaseConnector, ConnectorConfig, ConnectorStatus, Document
 
+# Try to import Crawl4AI
+try:
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+    CRAWL4AI_AVAILABLE = True
+except ImportError:
+    CRAWL4AI_AVAILABLE = False
+    print("[WebScraper] Crawl4AI not installed. Run: pip install crawl4ai && crawl4ai-setup")
+
+# Fallback imports
 try:
     import requests
     from bs4 import BeautifulSoup
-    SCRAPER_AVAILABLE = True
+    FALLBACK_AVAILABLE = True
 except ImportError:
-    SCRAPER_AVAILABLE = False
-
-try:
-    import asyncio
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
+    FALLBACK_AVAILABLE = False
 
 
 class WebScraperConnector(BaseConnector):
     """
-    Website scraper connector for extracting content from websites.
+    Website scraper connector powered by Crawl4AI.
 
     Features:
-    - Crawls starting URL and follows internal links
-    - Extracts text from HTML pages
-    - Downloads and parses PDFs
+    - JavaScript rendering for dynamic pages
+    - Clean markdown extraction (LLM-ready)
+    - Built-in screenshot capture
+    - Smart link discovery and crawling
     - Respects max depth and max pages limits
-    - Same-domain restriction (no external links)
-    - Configurable rate limiting
+    - Same-domain restriction
+    - Robots.txt compliance
+    - Sitemap discovery
     """
 
     CONNECTOR_TYPE = "webscraper"
     REQUIRED_CREDENTIALS = []
     OPTIONAL_SETTINGS = {
-        "start_url": "",  # Required - starting URL to crawl
-        "priority_paths": [],  # Optional - paths to prioritize (e.g., ["/resources/", "/protocols/"])
-        "max_depth": 3,  # Maximum link depth from start URL
-        "max_pages": 50,  # Maximum pages to crawl
-        "include_pdfs": True,  # Download and parse PDFs
-        "rate_limit_delay": 1.0,  # Seconds between requests
-        "allowed_extensions": [".html", ".htm", ".pdf", ""],  # Empty string = no extension (index pages)
-        "exclude_patterns": ["#", "mailto:", "tel:"],  # URL patterns to exclude
-        "capture_screenshots": True,  # Capture PDF screenshots of webpages
-        "screenshot_timeout": 30,  # Seconds to wait for page to load
+        "start_url": "",
+        "max_depth": 2,
+        "max_pages": 20,
+        "include_pdfs": True,
+        "wait_for_js": True,
+        "screenshot": True,
+        "respect_robots_txt": True,
+        "use_sitemap": True,
+        "crawl_delay": 1.0,  # Seconds between requests
+        "timeout": 30,  # Seconds per page
+        "exclude_patterns": [
+            # Protocols
+            "#", "mailto:", "tel:", "javascript:", "data:", "file:",
+            # Authentication
+            "login", "signin", "signup", "register", "logout", "logoff", "signout",
+            "/auth/", "/account/", "/user/", "/profile/", "/dashboard/", "/settings/",
+            "/admin/", "/password", "/forgot", "/reset", "/verify",
+            # E-commerce
+            "cart", "checkout", "/basket", "/order", "/payment", "/billing",
+            # Search & filters
+            "/search", "?search=", "?q=", "?query=", "?sort=", "?filter=",
+            # Tracking
+            "?utm_", "?fbclid=", "?gclid=", "?ref=", "?session",
+            # API & system
+            "/api/", "/v1/", "/v2/", "/graphql", "/webhook",
+            # Dev/test
+            "/test/", "/staging/", "/dev/", "/debug",
+        ],
     }
+
+    # Bot identification with contact info
+    BOT_USER_AGENT = "Mozilla/5.0 (compatible; 2ndBrainBot/1.0; +https://2ndbrain.app/bot-policy) Enterprise Knowledge Crawler"
 
     def __init__(self, config: ConnectorConfig, tenant_id: Optional[str] = None):
         super().__init__(config)
-        self.visited_urls: Set[str] = set()
-        self.session = None
-        self.base_domain = None
         self.tenant_id = tenant_id
-        self.screenshots_dir = self._get_screenshots_dir()
+        self.visited_urls: Set[str] = set()
+        self.base_domain = None
+        self.robots_parser: Optional[RobotFileParser] = None
+        self.sitemap_urls: List[str] = []
+        self.error_count = 0
+        self.success_count = 0
 
     def _get_screenshots_dir(self) -> str:
-        """Get the screenshots directory for the tenant."""
+        """Get directory for storing screenshots"""
+        base_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "tenant_data",
+            self.tenant_id or "default",
+            "screenshots"
+        )
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+
+    def _url_to_filename(self, url: str) -> str:
+        """Convert URL to safe filename using SHA256 (collision-resistant)"""
+        url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
+        return f"screenshot_{url_hash}"
+
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL to prevent duplicates"""
+        if not url:
+            return ""
+
+        # Parse the URL
+        parsed = urlparse(url)
+
+        # Lowercase scheme and domain
+        scheme = parsed.scheme.lower() or "https"
+        netloc = parsed.netloc.lower()
+
+        # Remove default ports
+        if netloc.endswith(":80") and scheme == "http":
+            netloc = netloc[:-3]
+        elif netloc.endswith(":443") and scheme == "https":
+            netloc = netloc[:-4]
+
+        # Remove trailing slash from path (unless it's just "/")
+        path = parsed.path
+        if path != "/" and path.endswith("/"):
+            path = path[:-1]
+
+        # Remove fragment
+        # Keep query for now (some pages need it)
+
+        return f"{scheme}://{netloc}{path}"
+
+    async def _load_robots_txt(self) -> bool:
+        """Load and parse robots.txt"""
+        if not self.config.settings.get("respect_robots_txt", True):
+            return True
+
         try:
-            if self.tenant_id:
-                screenshots_dir = f"tenant_data/{self.tenant_id}/screenshots"
-            else:
-                screenshots_dir = "tenant_data/default/screenshots"
+            robots_url = f"{self.base_domain}/robots.txt"
+            self.robots_parser = RobotFileParser()
+            self.robots_parser.set_url(robots_url)
+            self.robots_parser.read()
 
-            # Create directory if it doesn't exist
-            os.makedirs(screenshots_dir, exist_ok=True)
-            print(f"[WebScraper] Screenshots directory: {screenshots_dir}")
-            return screenshots_dir
+            # Extract sitemap URLs from robots.txt
+            if FALLBACK_AVAILABLE:
+                response = requests.get(robots_url, timeout=10, headers={
+                    "User-Agent": self.BOT_USER_AGENT
+                })
+                if response.status_code == 200:
+                    for line in response.text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap_url = line.split(":", 1)[1].strip()
+                            self.sitemap_urls.append(sitemap_url)
+                            print(f"[WebScraper] Found sitemap: {sitemap_url}")
+
+            print(f"[WebScraper] Loaded robots.txt from {robots_url}")
+            return True
         except Exception as e:
-            print(f"[WebScraper] Error creating screenshots directory: {e}")
-            return None
+            print(f"[WebScraper] Could not load robots.txt: {e}")
+            return True  # Continue crawling if robots.txt unavailable
 
-    async def _capture_screenshot(self, url: str) -> Optional[str]:
-        """
-        Capture a PDF screenshot of a webpage using Playwright.
-
-        Args:
-            url: URL to capture
-
-        Returns:
-            Path to PDF file if successful, None otherwise
-        """
-        if not PLAYWRIGHT_AVAILABLE:
-            print(f"[WebScraper] Playwright not installed, skipping screenshot for {url}")
-            return None
-
-        if not self.screenshots_dir:
-            print(f"[WebScraper] Screenshots directory not available, skipping screenshot for {url}")
-            return None
-
-        capture_screenshots = self.config.settings.get("capture_screenshots", True)
-        if not capture_screenshots:
-            print(f"[WebScraper] Screenshot capture disabled, skipping {url}")
-            return None
-
+    def _is_allowed_by_robots(self, url: str) -> bool:
+        """Check if URL is allowed by robots.txt"""
+        if not self.robots_parser:
+            return True
         try:
-            timeout = self.config.settings.get("screenshot_timeout", 30) * 1000
-            pdf_filename = f"{self._url_to_id(url)}.pdf"
-            pdf_path = os.path.join(self.screenshots_dir, pdf_filename)
+            return self.robots_parser.can_fetch(self.BOT_USER_AGENT, url)
+        except Exception:
+            return True
 
-            print(f"[WebScraper]   Capturing screenshot for: {url}")
+    async def _discover_sitemap_urls(self) -> List[str]:
+        """Discover URLs from sitemap.xml"""
+        if not self.config.settings.get("use_sitemap", True):
+            return []
 
-            async with async_playwright() as p:
-                # Use chromium for better compatibility
-                browser = await p.chromium.launch()
-                try:
-                    page = await browser.new_page()
+        urls = []
 
-                    # Navigate to page with timeout
-                    await page.goto(url, timeout=timeout, wait_until="networkidle")
+        # Check standard sitemap location if not found in robots.txt
+        if not self.sitemap_urls:
+            self.sitemap_urls = [f"{self.base_domain}/sitemap.xml"]
 
-                    # Capture PDF
-                    await page.pdf(path=pdf_path)
-                    print(f"[WebScraper]   ✓ Screenshot saved: {pdf_path}")
-                    return pdf_path
+        for sitemap_url in self.sitemap_urls[:3]:  # Limit to 3 sitemaps
+            try:
+                if not FALLBACK_AVAILABLE:
+                    continue
 
-                except Exception as e:
-                    print(f"[WebScraper]   Error capturing screenshot: {e}")
-                    return None
-                finally:
-                    await browser.close()
+                response = requests.get(sitemap_url, timeout=10, headers={
+                    "User-Agent": self.BOT_USER_AGENT
+                })
 
-        except Exception as e:
-            print(f"[WebScraper] Failed to capture screenshot for {url}: {e}")
-            return None
+                if response.status_code != 200:
+                    continue
+
+                soup = BeautifulSoup(response.content, "xml")
+
+                # Check if it's a sitemap index
+                sitemaps = soup.find_all("sitemap")
+                if sitemaps:
+                    for sitemap in sitemaps[:5]:  # Limit nested sitemaps
+                        loc = sitemap.find("loc")
+                        if loc:
+                            # Recursively add child sitemap URLs
+                            self.sitemap_urls.append(loc.text)
+                    continue
+
+                # Extract URLs from sitemap
+                for url_tag in soup.find_all("url"):
+                    loc = url_tag.find("loc")
+                    if loc and loc.text:
+                        normalized = self._normalize_url(loc.text)
+                        if normalized.startswith(self.base_domain):
+                            urls.append(normalized)
+
+                print(f"[WebScraper] Found {len(urls)} URLs in sitemap")
+
+            except Exception as e:
+                print(f"[WebScraper] Could not parse sitemap {sitemap_url}: {e}")
+
+        return urls[:100]  # Limit sitemap URLs
 
     async def connect(self) -> bool:
         """Test website connection"""
-        if not SCRAPER_AVAILABLE:
-            self._set_error("BeautifulSoup4 and requests not installed. Run: pip install beautifulsoup4 requests")
+        if not CRAWL4AI_AVAILABLE and not FALLBACK_AVAILABLE:
+            self._set_error("Neither Crawl4AI nor fallback libraries installed")
             return False
 
         try:
             self.status = ConnectorStatus.CONNECTING
-
             start_url = self.config.settings.get("start_url", "").strip()
-            print(f"[WebScraper] Attempting to connect to: {start_url}")
+
             if not start_url:
-                error_msg = "No start_url configured. Please set 'start_url' in settings."
-                self._set_error(error_msg)
-                print(f"[WebScraper] ERROR: {error_msg}")
+                self._set_error("No start_url configured")
                 return False
 
-            # Validate URL
             if not start_url.startswith(("http://", "https://")):
                 start_url = "https://" + start_url
                 self.config.settings["start_url"] = start_url
 
-            # Extract base domain
             parsed = urlparse(start_url)
             self.base_domain = f"{parsed.scheme}://{parsed.netloc}"
 
-            # Create session
-            self.session = requests.Session()
-            self.session.headers.update({
-                "User-Agent": "Mozilla/5.0 (compatible; 2ndBrainBot/1.0; +https://github.com/your-repo)"
-            })
+            # Quick connectivity check
+            if FALLBACK_AVAILABLE:
+                response = requests.head(
+                    start_url,
+                    timeout=10,
+                    allow_redirects=True,
+                    headers={"User-Agent": self.BOT_USER_AGENT}
+                )
+                if response.status_code >= 400:
+                    self._set_error(f"Failed to connect: HTTP {response.status_code}")
+                    return False
 
-            # Test connection
-            response = self.session.get(start_url, timeout=10, allow_redirects=True)
-            if response.status_code != 200:
-                self._set_error(f"Failed to connect: HTTP {response.status_code}")
-                return False
+            # Load robots.txt
+            await self._load_robots_txt()
 
             self.status = ConnectorStatus.CONNECTED
             self._clear_error()
@@ -179,393 +278,430 @@ class WebScraperConnector(BaseConnector):
             return True
 
         except Exception as e:
-            error_msg = f"Failed to connect: {str(e)}"
-            self._set_error(error_msg)
-            print(f"[WebScraper] ERROR: {error_msg}")
-            import traceback
-            print(f"[WebScraper] Traceback: {traceback.format_exc()}")
+            self._set_error(f"Connection failed: {str(e)}")
             return False
 
-    async def disconnect(self) -> bool:
-        """Disconnect"""
-        if self.session:
-            self.session.close()
-        self.visited_urls.clear()
-        self.status = ConnectorStatus.DISCONNECTED
-        return True
-
-    async def test_connection(self) -> bool:
-        """Test connection"""
-        return await self.connect()
-
     async def sync(self, since: Optional[datetime] = None) -> List[Document]:
-        """
-        Crawl website and extract content.
-
-        Args:
-            since: Not used for web scraping (always fetches current content)
-
-        Returns:
-            List of Document objects
-        """
+        """Crawl website using Crawl4AI"""
         print(f"[WebScraper] === SYNC STARTED ===")
-        print(f"[WebScraper] SCRAPER_AVAILABLE: {SCRAPER_AVAILABLE}")
-        print(f"[WebScraper] Current status: {self.status}")
 
         if self.status != ConnectorStatus.CONNECTED:
-            print(f"[WebScraper] Not connected, attempting to connect...")
             if not await self.connect():
-                print(f"[WebScraper] Connection failed, returning empty list")
                 return []
-            print(f"[WebScraper] Connection successful")
 
         self.status = ConnectorStatus.SYNCING
         documents = []
+        self.error_count = 0
+        self.success_count = 0
 
-        try:
-            start_url = self.config.settings["start_url"]
-            max_depth = self.config.settings.get("max_depth", 3)
-            max_pages = self.config.settings.get("max_pages", 50)
-            priority_paths = self.config.settings.get("priority_paths", [])
-            rate_limit = self.config.settings.get("rate_limit_delay", 1.0)
+        start_url = self.config.settings["start_url"]
+        max_depth = self.config.settings.get("max_depth", 2)
+        max_pages = self.config.settings.get("max_pages", 20)
+        wait_for_js = self.config.settings.get("wait_for_js", True)
+        take_screenshot = self.config.settings.get("screenshot", True)
+        exclude_patterns = self.config.settings.get("exclude_patterns", [])
 
-            print(f"[WebScraper] Starting crawl from {start_url}")
-            print(f"[WebScraper] Max depth: {max_depth}, Max pages: {max_pages}")
-            print(f"[WebScraper] Base domain: {self.base_domain}")
-            if priority_paths:
-                print(f"[WebScraper] Priority paths: {priority_paths}")
+        print(f"[WebScraper] Starting crawl from {start_url}")
+        print(f"[WebScraper] Max depth: {max_depth}, Max pages: {max_pages}")
+        print(f"[WebScraper] Using Crawl4AI: {CRAWL4AI_AVAILABLE}")
 
-            # BFS crawl with priority queue
-            # Format: (url, depth, is_priority)
-            queue = deque([(start_url, 0, False)])
-            priority_queue = deque()
+        self.visited_urls.clear()
 
-            # Add priority URLs to front of queue
-            if priority_paths:
-                for path in priority_paths:
-                    priority_url = urljoin(start_url, path)
-                    priority_queue.append((priority_url, 1, True))
-                    print(f"[WebScraper] Added priority URL: {priority_url}")
+        # Discover sitemap URLs first (faster than link crawling)
+        sitemap_urls = await self._discover_sitemap_urls()
+        if sitemap_urls:
+            print(f"[WebScraper] Using {len(sitemap_urls)} URLs from sitemap")
 
-            self.visited_urls.clear()
-            pages_crawled = 0
+        if CRAWL4AI_AVAILABLE:
+            documents = await self._crawl_with_crawl4ai(
+                start_url, max_depth, max_pages, wait_for_js,
+                take_screenshot, exclude_patterns, sitemap_urls
+            )
+        else:
+            documents = await self._crawl_fallback(
+                start_url, max_depth, max_pages, exclude_patterns, sitemap_urls
+            )
 
-            print(f"[WebScraper] Priority queue size: {len(priority_queue)}")
-            print(f"[WebScraper] Regular queue size: {len(queue)}")
+        print(f"[WebScraper] === CRAWL COMPLETE ===")
+        print(f"[WebScraper] Pages crawled: {len(self.visited_urls)}")
+        print(f"[WebScraper] Documents created: {len(documents)}")
+        print(f"[WebScraper] Success: {self.success_count}, Errors: {self.error_count}")
 
-            # Process priority URLs first
-            while priority_queue and pages_crawled < max_pages:
-                print(f"[WebScraper] Processing priority queue (size: {len(priority_queue)})")
-                url, depth, _ = priority_queue.popleft()
-                print(f"[WebScraper] Popped priority URL: {url} (depth: {depth})")
+        self.status = ConnectorStatus.CONNECTED
+        return documents
 
+    async def _crawl_with_crawl4ai(
+        self,
+        start_url: str,
+        max_depth: int,
+        max_pages: int,
+        wait_for_js: bool,
+        take_screenshot: bool,
+        exclude_patterns: List[str],
+        sitemap_urls: List[str] = None
+    ) -> List[Document]:
+        """Crawl using Crawl4AI - the good scraper"""
+        documents = []
+        screenshots_dir = self._get_screenshots_dir()
+        crawl_delay = self.config.settings.get("crawl_delay", 1.0)
+        timeout = self.config.settings.get("timeout", 30)
+
+        # Initialize URL queue with sitemap URLs first (depth 0), then start URL
+        urls_to_crawl = []
+        if sitemap_urls:
+            for url in sitemap_urls[:max_pages]:
+                urls_to_crawl.append((url, 0))
+        urls_to_crawl.append((start_url, 0))
+
+        browser_config = BrowserConfig(
+            headless=True,
+            verbose=False,
+            user_agent=self.BOT_USER_AGENT,
+        )
+
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            while urls_to_crawl and len(documents) < max_pages:
+                url, depth = urls_to_crawl.pop(0)
+
+                # Normalize URL
+                url = self._normalize_url(url)
+                if not url:
+                    continue
+
+                # Skip if already visited
                 if url in self.visited_urls:
-                    print(f"[WebScraper] Already visited, skipping: {url}")
                     continue
 
-                print(f"[WebScraper] Crawling priority page: {url}")
-                doc = await self._crawl_page(url, depth)
-                if doc:
+                # Validate URL BEFORE adding to visited
+                if not self._is_valid_url(url, exclude_patterns):
+                    continue
+
+                # Check robots.txt
+                if not self._is_allowed_by_robots(url):
+                    print(f"[WebScraper] Blocked by robots.txt: {url}")
+                    continue
+
+                # Mark as visited only after all validation passes
+                self.visited_urls.add(url)
+                print(f"[WebScraper] Crawling ({len(documents)+1}/{max_pages}): {url}")
+
+                try:
+                    run_config = CrawlerRunConfig(
+                        cache_mode=CacheMode.BYPASS,
+                        screenshot=take_screenshot,
+                        pdf=take_screenshot,
+                        wait_until="networkidle" if wait_for_js else "domcontentloaded",
+                    )
+
+                    # Add timeout to prevent hanging
+                    try:
+                        result = await asyncio.wait_for(
+                            crawler.arun(url=url, config=run_config),
+                            timeout=timeout
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[WebScraper] Timeout after {timeout}s: {url}")
+                        self.error_count += 1
+                        continue
+
+                    if not result.success:
+                        print(f"[WebScraper] Failed to crawl {url}: {result.error_message}")
+                        self.error_count += 1
+                        continue
+
+                    # Get clean markdown content (LLM-ready)
+                    content = result.markdown or result.cleaned_html or ""
+
+                    if len(content.strip()) < 100:
+                        print(f"[WebScraper] Skipping {url} - too little content")
+                        continue
+
+                    # Save screenshot/PDF if available
+                    screenshot_path = None
+                    pdf_path = None
+
+                    if take_screenshot and result.screenshot:
+                        screenshot_path = os.path.join(
+                            screenshots_dir,
+                            f"{self._url_to_filename(url)}.png"
+                        )
+                        try:
+                            with open(screenshot_path, "wb") as f:
+                                f.write(base64.b64decode(result.screenshot))
+                            print(f"[WebScraper] Screenshot saved: {screenshot_path}")
+                        except Exception as e:
+                            print(f"[WebScraper] Failed to save screenshot: {e}")
+                            # Cleanup orphaned file
+                            if os.path.exists(screenshot_path):
+                                try:
+                                    os.remove(screenshot_path)
+                                except:
+                                    pass
+                            screenshot_path = None
+
+                    # Save PDF if available
+                    if take_screenshot and hasattr(result, 'pdf') and result.pdf:
+                        pdf_path = os.path.join(
+                            screenshots_dir,
+                            f"{self._url_to_filename(url)}.pdf"
+                        )
+                        try:
+                            with open(pdf_path, "wb") as f:
+                                f.write(result.pdf)  # PDF is binary, not base64
+                            print(f"[WebScraper] PDF saved: {pdf_path}")
+                        except Exception as e:
+                            print(f"[WebScraper] Failed to save PDF: {e}")
+                            if os.path.exists(pdf_path):
+                                try:
+                                    os.remove(pdf_path)
+                                except:
+                                    pass
+                            pdf_path = None
+
+                    # Get title safely
+                    title = url
+                    if result.metadata and isinstance(result.metadata, dict):
+                        title = result.metadata.get("title", url) or url
+
+                    # Create document
+                    doc = Document(
+                        doc_id=f"webscraper_{self._url_to_filename(url)}",
+                        source="webscraper",
+                        content=content,
+                        title=title,
+                        metadata={
+                            "url": url,
+                            "depth": depth,
+                            "word_count": len(content.split()),
+                            "links_found": len(result.links.get("internal", [])) if result.links else 0,
+                            "screenshot_path": screenshot_path,
+                            "pdf_path": pdf_path,
+                            "crawl4ai": True,
+                        },
+                        timestamp=datetime.now(),
+                        url=url,
+                        doc_type="webpage"
+                    )
                     documents.append(doc)
-                    pages_crawled += 1
-                    print(f"[WebScraper] ✓ Crawled priority page {pages_crawled}/{max_pages}: {url}")
+                    self.success_count += 1
+                    print(f"[WebScraper] ✓ Extracted {len(content)} chars from {url}")
 
-                    # Extract links from priority pages
-                    if depth < max_depth:
-                        links = self._extract_links(doc.metadata.get("html_content", ""), url)
-                        print(f"[WebScraper] Extracted {len(links)} links from {url}")
-                        for link in links:
-                            if link not in self.visited_urls:
-                                queue.append((link, depth + 1, False))
-                else:
-                    print(f"[WebScraper] ✗ No document returned for: {url}")
+                    # Extract and queue internal links
+                    if depth < max_depth and result.links:
+                        internal_links = result.links.get("internal", [])
+                        for link_info in internal_links[:50]:  # Limit links per page
+                            # Safely extract link
+                            if isinstance(link_info, dict):
+                                link = link_info.get("href", "")
+                            elif isinstance(link_info, str):
+                                link = link_info
+                            else:
+                                continue
 
-                time.sleep(rate_limit)
+                            # Validate link format
+                            if not link or not isinstance(link, str):
+                                continue
 
-            # Process regular queue
-            print(f"[WebScraper] Starting regular queue processing (size: {len(queue)})")
-            while queue and pages_crawled < max_pages:
-                url, depth, _ = queue.popleft()
-                print(f"[WebScraper] Popped URL: {url} (depth: {depth})")
+                            # Handle relative URLs
+                            if link.startswith("/"):
+                                link = self.base_domain + link
+                            elif not link.startswith("http"):
+                                continue
 
-                if url in self.visited_urls:
-                    print(f"[WebScraper] Already visited, skipping: {url}")
+                            # Normalize and check
+                            link = self._normalize_url(link)
+                            if link and link not in self.visited_urls:
+                                if self._is_valid_url(link, exclude_patterns):
+                                    urls_to_crawl.append((link, depth + 1))
+
+                    # Respect crawl delay
+                    if crawl_delay > 0:
+                        await asyncio.sleep(crawl_delay)
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"[WebScraper] Error crawling {url}: {type(e).__name__}: {e}")
+                    self.error_count += 1
                     continue
-
-                if depth > max_depth:
-                    print(f"[WebScraper] Depth {depth} exceeds max {max_depth}, skipping: {url}")
-                    continue
-
-                print(f"[WebScraper] Crawling page: {url}")
-                doc = await self._crawl_page(url, depth)
-                if doc:
-                    documents.append(doc)
-                    pages_crawled += 1
-                    print(f"[WebScraper] ✓ Crawled page {pages_crawled}/{max_pages}: {url}")
-
-                    # Extract links and add to queue
-                    if depth < max_depth:
-                        links = self._extract_links(doc.metadata.get("html_content", ""), url)
-                        print(f"[WebScraper] Extracted {len(links)} links from {url}")
-                        for link in links:
-                            if link not in self.visited_urls:
-                                queue.append((link, depth + 1, False))
-                else:
-                    print(f"[WebScraper] ✗ No document returned for: {url}")
-
-                time.sleep(rate_limit)
-
-            print(f"[WebScraper] === CRAWL COMPLETE ===")
-            print(f"[WebScraper] Pages crawled: {pages_crawled}")
-            print(f"[WebScraper] Documents created: {len(documents)}")
-            print(f"[WebScraper] URLs visited: {len(self.visited_urls)}")
-
-            self.config.last_sync = datetime.now()
-            self.status = ConnectorStatus.CONNECTED
-            self._clear_error()
-
-        except Exception as e:
-            self._set_error(f"Sync failed: {str(e)}")
-            print(f"[WebScraper] Sync error: {e}")
-            import traceback
-            traceback.print_exc()
 
         return documents
 
-    async def _crawl_page(self, url: str, depth: int) -> Optional[Document]:
-        """
-        Crawl a single page and extract content.
+    async def _crawl_fallback(
+        self,
+        start_url: str,
+        max_depth: int,
+        max_pages: int,
+        exclude_patterns: List[str],
+        sitemap_urls: List[str] = None
+    ) -> List[Document]:
+        """Fallback crawler using requests + BeautifulSoup"""
+        print("[WebScraper] Using fallback crawler (no JS rendering)")
+        documents = []
+        crawl_delay = self.config.settings.get("crawl_delay", 1.0)
 
-        Args:
-            url: URL to crawl
-            depth: Current depth from start URL
+        # Initialize URL queue
+        urls_to_crawl = []
+        if sitemap_urls:
+            for url in sitemap_urls[:max_pages]:
+                urls_to_crawl.append((url, 0))
+        urls_to_crawl.append((start_url, 0))
 
-        Returns:
-            Document object or None
-        """
-        try:
-            # Mark as visited
+        while urls_to_crawl and len(documents) < max_pages:
+            url, depth = urls_to_crawl.pop(0)
+
+            # Normalize URL
+            url = self._normalize_url(url)
+            if not url:
+                continue
+
+            if url in self.visited_urls:
+                continue
+
+            if not self._is_valid_url(url, exclude_patterns):
+                continue
+
+            # Check robots.txt
+            if not self._is_allowed_by_robots(url):
+                print(f"[WebScraper] Blocked by robots.txt: {url}")
+                continue
+
             self.visited_urls.add(url)
-            print(f"[WebScraper]   Marked as visited: {url}")
+            print(f"[WebScraper] Crawling ({len(documents)+1}/{max_pages}): {url}")
 
-            # Check if URL should be excluded
-            exclude_patterns = self.config.settings.get("exclude_patterns", [])
-            if any(pattern in url for pattern in exclude_patterns):
-                print(f"[WebScraper]   Excluded by pattern: {url}")
-                return None
+            try:
+                response = requests.get(
+                    url,
+                    timeout=self.config.settings.get("timeout", 30),
+                    headers={"User-Agent": self.BOT_USER_AGENT}
+                )
 
-            # Check allowed extensions
-            allowed_extensions = self.config.settings.get("allowed_extensions", [])
-            url_path = urlparse(url).path.lower()
-            if allowed_extensions:
-                if not any(url_path.endswith(ext) for ext in allowed_extensions):
-                    print(f"[WebScraper]   Extension not allowed: {url_path}")
-                    return None
-
-            # Fetch page
-            print(f"[WebScraper]   Fetching: {url}")
-            response = self.session.get(url, timeout=30, allow_redirects=True)
-            print(f"[WebScraper]   Response: {response.status_code}")
-
-            if response.status_code != 200:
-                print(f"[WebScraper] Failed to fetch {url}: HTTP {response.status_code}")
-                return None
-
-            content_type = response.headers.get("Content-Type", "").lower()
-            print(f"[WebScraper]   Content-Type: {content_type}")
-
-            # Handle PDF
-            if "application/pdf" in content_type or url_path.endswith(".pdf"):
-                print(f"[WebScraper]   Detected PDF")
-                if self.config.settings.get("include_pdfs", True):
-                    return self._parse_pdf(url, response.content)
-                else:
-                    print(f"[WebScraper]   PDFs disabled, skipping")
-                return None
-
-            # Handle HTML
-            if "text/html" in content_type or not content_type:
-                print(f"[WebScraper]   Parsing HTML")
-                result = self._parse_html(url, response.text, depth)
-                if result:
-                    print(f"[WebScraper]   ✓ Successfully parsed HTML (content length: {len(result.content)})")
-
-                    # Capture screenshot of the webpage
-                    pdf_path = await self._capture_screenshot(url)
-                    if pdf_path:
-                        result.metadata["pdf_path"] = pdf_path
-                        print(f"[WebScraper]   ✓ Added screenshot to metadata")
-
-                else:
-                    print(f"[WebScraper]   ✗ HTML parsing returned None")
-                return result
-
-            print(f"[WebScraper]   Unsupported content type: {content_type}")
-            return None
-
-        except Exception as e:
-            print(f"[WebScraper] Error crawling {url}: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    def _parse_html(self, url: str, html_content: str, depth: int) -> Optional[Document]:
-        """Parse HTML page and extract text content"""
-        try:
-            print(f"[WebScraper]     Parsing HTML (length: {len(html_content)})")
-            soup = BeautifulSoup(html_content, "html.parser")
-
-            # Extract title first (before removing anything)
-            title = soup.find("title")
-            title_text = title.get_text().strip() if title else urlparse(url).path
-            print(f"[WebScraper]     Title: {title_text}")
-
-            # Only remove script and style elements (keep nav, header, footer - they often have content)
-            for script in soup(["script", "style"]):
-                script.decompose()
-
-            print(f"[WebScraper]     After removing script/style, soup length: {len(str(soup))}")
-
-            # Extract main content
-            # Try to find main content area, but be less strict
-            main_content = (
-                soup.find("main") or
-                soup.find("article") or
-                soup.find("div", id=re.compile(r"content|main", re.I)) or
-                soup.find("div", class_=re.compile(r"content|main", re.I)) or
-                soup.find("body") or
-                soup
-            )
-
-            print(f"[WebScraper]     Found content container: {main_content.name if hasattr(main_content, 'name') else 'unknown'}")
-
-            # Extract text with more lenient approach
-            text = main_content.get_text(separator="\n", strip=True)
-            print(f"[WebScraper]     Raw text length: {len(text)}")
-
-            # Clean up excessive whitespace
-            lines = [line.strip() for line in text.split("\n") if line.strip()]
-            content = "\n\n".join(lines)
-
-            print(f"[WebScraper]     Cleaned content length: {len(content)}")
-            print(f"[WebScraper]     Number of lines: {len(lines)}")
-
-            if len(content) < 100:  # Skip pages with very little content
-                print(f"[WebScraper]     Content too short (<100 chars), skipping")
-                print(f"[WebScraper]     Content preview: {content[:200]}")
-                return None
-
-            # Extract metadata
-            description = soup.find("meta", attrs={"name": "description"})
-            description_text = description.get("content", "").strip() if description else ""
-
-            keywords = soup.find("meta", attrs={"name": "keywords"})
-            keywords_text = keywords.get("content", "").strip() if keywords else ""
-
-            return Document(
-                doc_id=f"webscraper_{self._url_to_id(url)}",
-                source="webscraper",
-                content=content,
-                title=title_text,
-                metadata={
-                    "url": url,
-                    "depth": depth,
-                    "description": description_text,
-                    "keywords": keywords_text,
-                    "word_count": len(content.split()),
-                    "html_content": html_content  # Store for link extraction
-                },
-                timestamp=datetime.now(),
-                url=url,
-                doc_type="webpage"
-            )
-
-        except Exception as e:
-            print(f"[WebScraper] Error parsing HTML from {url}: {e}")
-            return None
-
-    def _parse_pdf(self, url: str, pdf_content: bytes) -> Optional[Document]:
-        """Parse PDF content"""
-        try:
-            import PyPDF2
-            import io
-
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
-            text_parts = []
-
-            for page_num, page in enumerate(pdf_reader.pages, 1):
-                text = page.extract_text()
-                if text.strip():
-                    text_parts.append(f"--- Page {page_num} ---\n{text}")
-
-            content = "\n\n".join(text_parts)
-
-            if len(content) < 100:
-                return None
-
-            # Extract title from URL or PDF metadata
-            title = urlparse(url).path.split("/")[-1]
-            if pdf_reader.metadata and pdf_reader.metadata.title:
-                title = pdf_reader.metadata.title
-
-            return Document(
-                doc_id=f"webscraper_{self._url_to_id(url)}",
-                source="webscraper",
-                content=content,
-                title=title,
-                metadata={
-                    "url": url,
-                    "content_type": "pdf",
-                    "page_count": len(pdf_reader.pages),
-                    "word_count": len(content.split())
-                },
-                timestamp=datetime.now(),
-                url=url,
-                doc_type="pdf"
-            )
-
-        except Exception as e:
-            print(f"[WebScraper] Error parsing PDF from {url}: {e}")
-            return None
-
-    def _extract_links(self, html_content: str, base_url: str) -> List[str]:
-        """Extract and filter links from HTML content"""
-        try:
-            soup = BeautifulSoup(html_content, "html.parser")
-            links = []
-
-            for anchor in soup.find_all("a", href=True):
-                href = anchor["href"].strip()
-
-                # Skip empty, anchor, mailto, tel links
-                if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                if response.status_code != 200:
+                    self.error_count += 1
                     continue
 
-                # Convert to absolute URL
-                absolute_url = urljoin(base_url, href)
+                soup = BeautifulSoup(response.text, "html.parser")
 
-                # Remove fragment
-                absolute_url = absolute_url.split("#")[0]
+                # Remove unwanted elements
+                for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
+                    tag.decompose()
 
-                # Check if same domain
-                parsed = urlparse(absolute_url)
-                url_domain = f"{parsed.scheme}://{parsed.netloc}"
+                # Get title
+                title = soup.title.string if soup.title else url
 
-                if url_domain == self.base_domain:
-                    links.append(absolute_url)
+                # Get main content
+                main = soup.find("main") or soup.find("article") or soup.find("body")
+                content = main.get_text(separator="\n", strip=True) if main else ""
 
-            return list(set(links))  # Deduplicate
+                if len(content) < 100:
+                    continue
 
-        except Exception as e:
-            print(f"[WebScraper] Error extracting links: {e}")
-            return []
+                doc = Document(
+                    doc_id=f"webscraper_{self._url_to_filename(url)}",
+                    source="webscraper",
+                    content=content,
+                    title=title,
+                    metadata={
+                        "url": url,
+                        "depth": depth,
+                        "word_count": len(content.split()),
+                        "crawl4ai": False,
+                    },
+                    timestamp=datetime.now(),
+                    url=url,
+                    doc_type="webpage"
+                )
+                documents.append(doc)
+                self.success_count += 1
+                print(f"[WebScraper] ✓ Extracted {len(content)} chars from {url}")
 
-    def _url_to_id(self, url: str) -> str:
-        """Convert URL to a unique ID"""
-        import hashlib
-        return hashlib.md5(url.encode()).hexdigest()
+                # Extract links
+                if depth < max_depth:
+                    for a in soup.find_all("a", href=True):
+                        link = a["href"]
+
+                        # Handle relative URLs
+                        if link.startswith("/"):
+                            link = self.base_domain + link
+                        elif not link.startswith("http"):
+                            # Could be relative like "page.html"
+                            link = urljoin(url, link)
+
+                        link = self._normalize_url(link)
+                        if link and link.startswith(self.base_domain) and link not in self.visited_urls:
+                            if self._is_valid_url(link, exclude_patterns):
+                                urls_to_crawl.append((link, depth + 1))
+
+                # Respect crawl delay
+                if crawl_delay > 0:
+                    await asyncio.sleep(crawl_delay)
+
+            except requests.Timeout:
+                print(f"[WebScraper] Timeout: {url}")
+                self.error_count += 1
+                continue
+            except requests.RequestException as e:
+                print(f"[WebScraper] Request error: {e}")
+                self.error_count += 1
+                continue
+            except Exception as e:
+                print(f"[WebScraper] Error: {type(e).__name__}: {e}")
+                self.error_count += 1
+                continue
+
+        return documents
+
+    def _is_valid_url(self, url: str, exclude_patterns: List[str]) -> bool:
+        """Check if URL should be crawled"""
+        if not url:
+            return False
+
+        if not url.startswith(self.base_domain):
+            return False
+
+        url_lower = url.lower()
+
+        # Check exclude patterns
+        for pattern in exclude_patterns:
+            if pattern.lower() in url_lower:
+                return False
+
+        # Skip common non-content file extensions
+        skip_extensions = [
+            # Images
+            '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.ico', '.bmp',
+            # Styles/scripts
+            '.css', '.js', '.map',
+            # Fonts
+            '.woff', '.woff2', '.ttf', '.eot', '.otf',
+            # Media
+            '.mp3', '.mp4', '.wav', '.avi', '.mov', '.webm',
+            # Archives
+            '.zip', '.rar', '.7z', '.tar', '.gz',
+            # Documents (usually want markdown, not raw files)
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            # Other
+            '.xml', '.json', '.rss', '.atom',
+        ]
+
+        for ext in skip_extensions:
+            if url_lower.endswith(ext):
+                return False
+
+        return True
+
+    async def disconnect(self) -> bool:
+        """Disconnect from the website"""
+        self.status = ConnectorStatus.DISCONNECTED
+        self.visited_urls.clear()
+        self.sitemap_urls.clear()
+        self.robots_parser = None
+        return True
 
     async def get_document(self, doc_id: str) -> Optional[Document]:
-        """Get a specific document by ID"""
-        # Not implemented for web scraper
+        """Get a specific document - not supported for web scraper"""
         return None
+
+    async def test_connection(self) -> bool:
+        """Test the connection"""
+        return await self.connect()
