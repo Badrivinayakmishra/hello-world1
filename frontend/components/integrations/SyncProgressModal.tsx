@@ -58,6 +58,8 @@ export default function SyncProgressModal({
       ? (progress.processed_items / progress.total_items) * 100
       : progress.percent_complete
 
+    const remaining = progress.total_items - progress.processed_items
+
     // Track progress history for better estimation
     if (actualPercent > 0 || progress.processed_items > 0) {
       progressHistoryRef.current.push({
@@ -70,15 +72,15 @@ export default function SyncProgressModal({
         progressHistoryRef.current.shift()
       }
 
-      // Calculate rate of progress
-      if (progressHistoryRef.current.length >= 2) {
+      // Try to calculate based on actual progress rate
+      if (progressHistoryRef.current.length >= 2 && elapsed > 3) {
         const first = progressHistoryRef.current[0]
         const last = progressHistoryRef.current[progressHistoryRef.current.length - 1]
 
         const percentChange = last.percent - first.percent
         const timeChange = (last.time - first.time) / 1000 // seconds
 
-        if (percentChange > 0 && timeChange > 0) {
+        if (percentChange > 5 && timeChange > 0) {
           const percentPerSecond = percentChange / timeChange
           const remainingPercent = 100 - actualPercent
           const estimatedSeconds = remainingPercent / percentPerSecond
@@ -94,15 +96,37 @@ export default function SyncProgressModal({
             const mins = Math.ceil((estimatedSeconds % 3600) / 60)
             setEstimatedTime(`Est: ~${hours}h ${mins}m`)
           }
-        } else if (elapsed > 2) {
-          // If we have elapsed time but no rate change yet, show "Calculating..."
-          setEstimatedTime('Est: Calculating...')
+          return
         }
-      } else if (elapsed > 2) {
-        setEstimatedTime('Est: Calculating...')
       }
-    } else if (elapsed > 2) {
-      setEstimatedTime('Est: Calculating...')
+    }
+
+    // Fallback: Estimate based on status and items remaining
+    let estimatedSeconds = 30 // default guess
+
+    if (progress.status === 'connecting') {
+      estimatedSeconds = 10
+    } else if (progress.status === 'syncing') {
+      // Syncing: ~5-10 seconds per 10 items
+      estimatedSeconds = Math.max(20, remaining * 0.5)
+    } else if (progress.status === 'parsing') {
+      // Parsing: ~2 seconds per document
+      estimatedSeconds = Math.max(10, remaining * 2)
+    } else if (progress.status === 'embedding') {
+      // Embedding: ~3 seconds per document
+      estimatedSeconds = Math.max(15, remaining * 3)
+    }
+
+    // Format fallback estimate
+    if (estimatedSeconds < 60) {
+      setEstimatedTime(`Est: ~${Math.ceil(estimatedSeconds)}s`)
+    } else if (estimatedSeconds < 3600) {
+      const mins = Math.ceil(estimatedSeconds / 60)
+      setEstimatedTime(`Est: ~${mins} min`)
+    } else {
+      const hours = Math.floor(estimatedSeconds / 3600)
+      const mins = Math.ceil((estimatedSeconds % 3600) / 60)
+      setEstimatedTime(`Est: ~${hours}h ${mins}m`)
     }
   }, [progress])
 
@@ -329,6 +353,12 @@ export default function SyncProgressModal({
   const getStatusText = () => {
     if (!progress) return 'Connecting...'
 
+    // Use backend's stage message if available (it's more detailed)
+    if (progress.stage && progress.status !== 'complete' && progress.status !== 'error') {
+      return progress.stage
+    }
+
+    // Fallback to status-based messages
     switch (progress.status) {
       case 'connecting':
         return 'Connecting to service...'
@@ -337,13 +367,13 @@ export default function SyncProgressModal({
       case 'parsing':
         return 'Parsing documents...'
       case 'embedding':
-        return 'Processing and indexing...'
+        return 'Creating embeddings and indexing...'
       case 'complete':
         return 'Sync completed successfully!'
       case 'error':
         return 'Sync failed'
       default:
-        return progress.stage || 'Processing...'
+        return 'Processing...'
     }
   }
 
