@@ -519,17 +519,15 @@ export default function SyncProgressModal({
           </div>
         )}
 
-        {/* Time and Progress Info */}
-        {progress.status !== 'complete' && progress.status !== 'error' && (
+        {/* Estimated Time */}
+        {progress.status !== 'complete' && progress.status !== 'error' && estimatedTime && (
           <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
+            textAlign: 'right',
             marginBottom: '12px',
             fontFamily: '"Work Sans", sans-serif',
             fontSize: '12px',
             color: '#6B7280'
           }}>
-            <span>Elapsed: {Math.floor(elapsedTime / 60)}:{String(Math.floor(elapsedTime % 60)).padStart(2, '0')}</span>
             <span>{estimatedTime}</span>
           </div>
         )}
