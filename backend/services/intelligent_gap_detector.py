@@ -39,20 +39,30 @@ from datetime import datetime
 import hashlib
 from difflib import SequenceMatcher
 
-# spaCy is required for NLP processing
-import spacy
+# spaCy is optional - provides better NLP but has fallbacks
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    spacy = None
 
 logger = logging.getLogger(__name__)
 
-# Load spaCy model at module level for efficiency
-try:
-    NLP = spacy.load("en_core_web_sm")
-    logger.info("[IntelligentGapDetector] spaCy en_core_web_sm model loaded")
-except OSError:
-    raise ImportError(
-        "spaCy model 'en_core_web_sm' not found. "
-        "Install it with: python -m spacy download en_core_web_sm"
-    )
+# Load spaCy model at module level for efficiency (optional)
+NLP = None
+if SPACY_AVAILABLE:
+    try:
+        NLP = spacy.load("en_core_web_sm")
+        logger.info("[IntelligentGapDetector] spaCy en_core_web_sm model loaded")
+    except OSError:
+        logger.warning(
+            "[IntelligentGapDetector] spaCy model 'en_core_web_sm' not found. "
+            "Running in fallback mode. Install with: python -m spacy download en_core_web_sm"
+        )
+        SPACY_AVAILABLE = False
+else:
+    logger.warning("[IntelligentGapDetector] spaCy not installed. Running in fallback mode.")
 
 
 # =============================================================================
@@ -846,9 +856,16 @@ class FrameExtractor:
         return slots
 
     def _split_sentences(self, text: str) -> List[str]:
-        """Split text into sentences using spaCy"""
-        doc = self.nlp(text[:100000])  # Limit to avoid memory issues
-        return [sent.text.strip() for sent in doc.sents]
+        """Split text into sentences using spaCy or regex fallback"""
+        if self.nlp is not None:
+            doc = self.nlp(text[:100000])  # Limit to avoid memory issues
+            return [sent.text.strip() for sent in doc.sents]
+        else:
+            # Fallback: regex-based sentence splitting
+            text = text[:100000]
+            # Split on sentence-ending punctuation followed by space and capital
+            sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+            return [s.strip() for s in sentences if s.strip()]
 
 
 # =============================================================================

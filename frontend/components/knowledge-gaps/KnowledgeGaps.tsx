@@ -55,7 +55,7 @@ export default function KnowledgeGaps() {
   const [generating, setGenerating] = useState(false)
 
   // Time strategy filter
-  const [timeStrategy, setTimeStrategy] = useState<'10' | '30' | '90'>('30')
+  const [timeStrategy, setTimeStrategy] = useState<'10' | '20' | '30' | 'all'>('20')
 
   // View mode
   const [viewMode, setViewMode] = useState<'focus' | 'list'>('list')
@@ -361,18 +361,31 @@ export default function KnowledgeGaps() {
   const getFilteredGaps = () => {
     let filtered = gaps.filter(g => !g.answered && !g.skipped)
 
-    // Calculate total time and filter based on strategy
-    let timeLimit = parseInt(timeStrategy)
-    let totalTime = 0
-    const result: KnowledgeGap[] = []
-
-    // Sort by priority first
+    // Sort by relevance (quality_score) first, highest score first
+    // Then by priority as secondary sort
     const priorityOrder = { high: 0, medium: 1, low: 2 }
     filtered.sort((a, b) => {
+      // Primary sort: quality_score (descending - higher is better)
+      const aScore = a.quality_score || 0
+      const bScore = b.quality_score || 0
+      if (aScore !== bScore) {
+        return bScore - aScore // Higher scores first
+      }
+      // Secondary sort: priority
       const aPri = (a.priority?.toLowerCase() || 'medium') as keyof typeof priorityOrder
       const bPri = (b.priority?.toLowerCase() || 'medium') as keyof typeof priorityOrder
       return (priorityOrder[aPri] || 1) - (priorityOrder[bPri] || 1)
     })
+
+    // If 'all' strategy, return all gaps
+    if (timeStrategy === 'all') {
+      return filtered
+    }
+
+    // Calculate total time and filter based on strategy
+    const timeLimit = parseInt(timeStrategy)
+    let totalTime = 0
+    const result: KnowledgeGap[] = []
 
     for (const gap of filtered) {
       const estTime = gap.estimated_time || 3
@@ -899,9 +912,10 @@ export default function KnowledgeGaps() {
               Strategy:
             </span>
             {[
-              { value: '10', label: '10 Mins', desc: 'Essential' },
-              { value: '30', label: '30 Mins', desc: 'Standard' },
-              { value: '90', label: '1.5 Hours', desc: 'Deep Dive' },
+              { value: '10', label: '10 Minutes', desc: 'Quick' },
+              { value: '20', label: '20 Minutes', desc: 'Standard' },
+              { value: '30', label: '30 Minutes', desc: 'Thorough' },
+              { value: 'all', label: 'All Questions', desc: 'Complete' },
             ].map((option) => (
               <button
                 key={option.value}
@@ -1122,7 +1136,7 @@ export default function KnowledgeGaps() {
                   All done for this session!
                 </h3>
                 <p style={{ fontSize: '14px', color: colors.textMuted }}>
-                  You've answered all gaps in your {timeStrategy} minute strategy.
+                  You've answered all gaps{timeStrategy !== 'all' ? ` in your ${timeStrategy} minute session` : ''}.
                 </p>
               </div>
             )}

@@ -79,5 +79,22 @@ def get_embedding(text):
 
     return response.data[0].embedding
 
-# Global client instance
-azure_client = get_azure_client()
+# Global client instance (lazy initialization)
+_azure_client = None
+
+def get_global_azure_client():
+    """Get or create global Azure client (lazy initialization)"""
+    global _azure_client
+    if _azure_client is None:
+        if AZURE_OPENAI_API_KEY:
+            _azure_client = get_azure_client()
+        else:
+            raise ValueError("AZURE_OPENAI_API_KEY not set. Cannot create Azure client.")
+    return _azure_client
+
+# For backwards compatibility - only fails when accessed, not on import
+class LazyAzureClient:
+    def __getattr__(self, name):
+        return getattr(get_global_azure_client(), name)
+
+azure_client = LazyAzureClient()
