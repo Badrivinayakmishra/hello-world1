@@ -376,7 +376,10 @@ Respond in JSON format:
 
         documents = query.limit(200).all()  # Increased limit - token budgeting handles the rest
 
+        print(f"[GapAnalysis] Found {len(documents)} documents to analyze")
+
         if not documents:
+            print("[GapAnalysis] No documents found!")
             return GapAnalysisResult(
                 gaps=[],
                 total_documents_analyzed=0,
@@ -412,9 +415,11 @@ Respond in JSON format:
             )
 
             result_text = response.choices[0].message.content
+            print(f"[GapAnalysis] GPT Response: {result_text[:500]}...")
             result_data = json.loads(result_text)
 
             gaps_data = result_data.get("gaps", [])
+            print(f"[GapAnalysis] Found {len(gaps_data)} gaps in GPT response")
 
             # Save gaps to database
             category_counts = {}

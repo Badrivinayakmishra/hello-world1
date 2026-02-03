@@ -156,25 +156,55 @@ def analyze_gaps():
         project_id = data.get('project_id')
         force = data.get('force', False)
         include_pending = data.get('include_pending', True)
-        mode = data.get('mode', 'v3')  # Default to v3 mode (enhanced)
+        mode = data.get('mode', 'simple')  # Default to simple for faster results
         max_documents = min(data.get('max_documents', 100), 500)  # Cap at 500
 
-        # Use Celery for background processing (gap analysis can take 5-15 minutes)
-        from tasks.gap_analysis_tasks import analyze_gaps_task
+        # Run synchronously for local testing (no Celery/Redis needed)
+        db = get_db()
+        try:
+            service = KnowledgeService(db)
+            tenant_id = getattr(g, 'tenant_id', 'local-tenant')
 
-        # Start background task
-        task = analyze_gaps_task.delay(
-            tenant_id=getattr(g, 'tenant_id', 'local-tenant'),
-            project_id=project_id,
-            mode=mode,
-            force=force
-        )
+            print(f"[GapAnalysis] Starting {mode} analysis for tenant {tenant_id}")
 
-        return jsonify({
-            "success": True,
-            "message": f"Gap analysis started in background (mode: {mode})",
-            "job_id": task.id  # Task ID for status polling
-        })
+            # Run the appropriate analysis mode
+            if mode == 'intelligent':
+                result = service.analyze_gaps_intelligent(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    max_documents=max_documents
+                )
+            elif mode == 'goalfirst':
+                result = service.analyze_gaps_goalfirst(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    max_documents=max_documents
+                )
+            elif mode == 'multistage':
+                result = service.analyze_gaps_multistage(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    max_documents=max_documents
+                )
+            else:  # simple or v3
+                result = service.analyze_gaps(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    force_reanalyze=force,
+                    include_pending=include_pending
+                )
+
+            gaps_created = result.get('gaps_created', 0) if isinstance(result, dict) else 0
+            print(f"[GapAnalysis] Created {gaps_created} gaps")
+
+            return jsonify({
+                "success": True,
+                "message": f"Gap analysis completed (mode: {mode})",
+                "gaps_created": gaps_created,
+                "result": result if isinstance(result, dict) else {"gaps_created": gaps_created}
+            })
+        finally:
+            db.close()
 
     except Exception as e:
         return jsonify({

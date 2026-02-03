@@ -1,7 +1,9 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { sessionManager } from '@/utils/sessionManager'
+import { authApi } from '@/utils/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'
 
@@ -41,6 +43,9 @@ interface AuthContextType {
   logout: () => Promise<void>
 }
 
+// Public routes that don't require authentication
+const PUBLIC_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password']
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -52,67 +57,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
 
+  // Handle session expiration
+  const handleSessionExpired = useCallback(() => {
+    console.log('[Auth] Session expired')
+    setUser(null)
+    setTenant(null)
+    setToken(null)
+    setRefreshToken(null)
+    router.push('/login')
+  }, [router])
+
   // Check auth on mount
   useEffect(() => {
+    // Set up session expiration handler
+    sessionManager.setOnSessionExpired(handleSessionExpired)
+
+    // Optional: Set up session warning handler
+    sessionManager.setOnSessionWarning((timeRemaining) => {
+      console.log(`[Auth] Session expiring in ${Math.round(timeRemaining / 1000)} seconds`)
+    })
+
     checkAuth()
-  }, [])
+  }, [handleSessionExpired])
 
-  // Redirect based on auth state - DISABLED FOR LOCAL TESTING
+  // Redirect based on auth state
   useEffect(() => {
-    // Skip authentication - allow access to all pages
-    return;
-
     if (!isLoading) {
-      const isAuthPage = pathname === '/login' || pathname === '/signup'
+      const isPublicRoute = PUBLIC_ROUTES.some(route => pathname?.startsWith(route))
 
-      if (!user && !isAuthPage) {
-        // Not authenticated and not on auth page -> redirect to login
+      if (!user && !isPublicRoute) {
+        // Not authenticated and not on public page -> redirect to login
         router.push('/login')
-      } else if (user && isAuthPage) {
-        // Authenticated but on auth page -> redirect to home
-        router.push('/')
+      } else if (user && pathname === '/login') {
+        // Authenticated but on login page -> redirect to documents
+        router.push('/documents')
       }
     }
   }, [user, isLoading, pathname, router])
 
   const checkAuth = async () => {
-    // SKIP AUTH CHECK FOR LOCAL TESTING
-    // Create a mock user to bypass authentication
-    const mockUser = {
-      id: 'local-test-user',
-      email: 'test@localhost.com',
-      full_name: 'Local Test User',
-      role: 'owner',
-      tenant_id: 'local-tenant',
-      email_verified: true,
-      mfa_enabled: false,
-      created_at: new Date().toISOString(),
-      is_active: true
-    }
+    // Check if we have stored auth data
+    const storedToken = sessionManager.getAccessToken()
+    const storedUserId = sessionManager.getUserId()
 
-    const mockTenant = {
-      id: 'local-tenant',
-      name: 'Local Testing',
-      slug: 'local-testing',
-      plan: 'enterprise',
-      storage_used_bytes: 0,
-      storage_limit_bytes: 10737418240,
-      created_at: new Date().toISOString(),
-      is_active: true
-    }
-
-    setUser(mockUser)
-    setTenant(mockTenant)
-    setToken('mock-token-for-local-testing')
-    setIsLoading(false)
-    return
-
-    // Original auth check code (disabled):
-    const storedToken = localStorage.getItem('authToken')
-    const storedUser = localStorage.getItem('user')
-    const storedTenant = localStorage.getItem('tenant')
-
-    if (!storedToken || !storedUser) {
+    if (!storedToken || !storedUserId) {
       setIsLoading(false)
       return
     }
@@ -122,7 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_URL}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${storedToken}`
-        }
+        },
+        credentials: 'include'
       })
 
       const data = await response.json()
@@ -131,30 +120,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user)
         setTenant(data.tenant)
         setToken(storedToken)
+        setRefreshToken(sessionManager.getRefreshToken())
       } else {
         // Token invalid, clear storage
-        clearStorage()
+        sessionManager.clearSession()
       }
     } catch (err) {
-      console.error('Auth check failed:', err)
+      console.error('[Auth] Auth check failed:', err)
       // Keep stored data if server is down (offline mode)
-      try {
-        setUser(JSON.parse(storedUser))
-        if (storedTenant) setTenant(JSON.parse(storedTenant))
-        setToken(storedToken)
-      } catch {
-        clearStorage()
-      }
+      // But we need to at least set basic state
+      setToken(storedToken)
+      setRefreshToken(sessionManager.getRefreshToken())
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const clearStorage = () => {
-    localStorage.removeItem('authToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('user')
-    localStorage.removeItem('tenant')
   }
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
@@ -165,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email, password }),
+        credentials: 'include' // Include cookies
       })
 
       const data = await response.json()
@@ -179,17 +159,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(accessToken)
         setRefreshToken(refreshTok)
 
-        localStorage.setItem('authToken', accessToken)
-        if (refreshTok) localStorage.setItem('refreshToken', refreshTok)
-        localStorage.setItem('user', JSON.stringify(data.user))
-        if (data.tenant) localStorage.setItem('tenant', JSON.stringify(data.tenant))
+        // Initialize session manager
+        sessionManager.initializeSession(accessToken, refreshTok, {
+          userId: data.user.id,
+          userEmail: data.user.email,
+          userName: data.user.full_name,
+          userType: data.user.role,
+          tenantId: data.user.tenant_id
+        })
+
+        // Redirect to documents page
+        router.push('/documents')
 
         return { success: true }
       } else {
         return { success: false, error: data.error || 'Login failed' }
       }
     } catch (err) {
-      console.error('Login error:', err)
+      console.error('[Auth] Login error:', err)
       return { success: false, error: 'Unable to connect to server' }
     }
   }
@@ -212,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           full_name: fullName,
           organization_name: organizationName
         }),
+        credentials: 'include'
       })
 
       const data = await response.json()
@@ -226,39 +214,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(accessToken)
         setRefreshToken(refreshTok)
 
-        localStorage.setItem('authToken', accessToken)
-        if (refreshTok) localStorage.setItem('refreshToken', refreshTok)
-        localStorage.setItem('user', JSON.stringify(data.user))
-        if (data.tenant) localStorage.setItem('tenant', JSON.stringify(data.tenant))
+        // Initialize session manager
+        sessionManager.initializeSession(accessToken, refreshTok, {
+          userId: data.user.id,
+          userEmail: data.user.email,
+          userName: data.user.full_name,
+          userType: data.user.role,
+          tenantId: data.user.tenant_id
+        })
+
+        // Redirect to documents page
+        router.push('/documents')
 
         return { success: true }
       } else {
         return { success: false, error: data.error || 'Signup failed' }
       }
     } catch (err) {
-      console.error('Signup error:', err)
+      console.error('[Auth] Signup error:', err)
       return { success: false, error: 'Unable to connect to server' }
     }
   }
 
   const logout = async () => {
     try {
-      if (token) {
-        await fetch(`${API_URL}/api/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-      }
+      await sessionManager.logout()
     } catch (err) {
-      console.error('Logout error:', err)
+      console.error('[Auth] Logout error:', err)
     } finally {
       setUser(null)
       setTenant(null)
       setToken(null)
       setRefreshToken(null)
-      clearStorage()
       router.push('/login')
     }
   }
@@ -298,5 +285,4 @@ export function useAuthHeaders() {
     'Authorization': token ? `Bearer ${token}` : '',
     'Content-Type': 'application/json'
   }
-  // Note: X-Tenant removed - tenant ID comes from JWT on backend
 }
