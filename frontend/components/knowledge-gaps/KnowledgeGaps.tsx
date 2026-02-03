@@ -104,14 +104,46 @@ export default function KnowledgeGaps() {
           const groupName = gap.title || gap.category || 'General'
           const questions = gap.questions || []
 
+          // Map priority integer (1-5) to string and estimate time
+          const priorityMap: { [key: number]: string } = { 1: 'low', 2: 'low', 3: 'medium', 4: 'high', 5: 'high' }
+          const priorityStr = typeof gap.priority === 'number'
+            ? priorityMap[gap.priority] || 'medium'
+            : gap.priority || 'medium'
+
+          // Estimate time based on priority (high=5min, medium=3min, low=2min)
+          const timeMap: { [key: string]: number } = { 'high': 5, 'medium': 3, 'low': 2 }
+          const estTime = gap.estimated_time || timeMap[priorityStr] || 3
+
+          // Parse context if it's a JSON string or object
+          let cleanContext = ''
+          if (gap.context) {
+            try {
+              const ctx = typeof gap.context === 'string' ? JSON.parse(gap.context) : gap.context
+              // Extract readable fields from context
+              if (ctx.evidence) cleanContext = ctx.evidence
+              else if (ctx.summary) cleanContext = ctx.summary
+              else if (ctx.description) cleanContext = ctx.description
+              else if (ctx.corpus_summary) cleanContext = ctx.corpus_summary
+              else if (typeof ctx === 'string') cleanContext = ctx
+              else cleanContext = ''
+            } catch {
+              // If not JSON, use as-is (but limit length)
+              cleanContext = typeof gap.context === 'string' ? gap.context : ''
+            }
+            // Remove any remaining JSON-looking strings
+            if (cleanContext.startsWith('{') || cleanContext.startsWith('[')) {
+              cleanContext = ''
+            }
+          }
+
           const gapMetadata = {
             category: gap.category,
-            priority: gap.priority || 'medium',
-            quality_score: gap.quality_score,
+            priority: priorityStr,
+            quality_score: gap.quality_score || 0,
             evidence: gap.evidence,
-            context: gap.context || gap.description,
+            context: cleanContext || gap.description,
             detection_method: gap.detection_method || gap.source,
-            estimated_time: gap.estimated_time || (gap.priority === 'high' ? 5 : gap.priority === 'low' ? 2 : 3)
+            estimated_time: estTime
           }
 
           if (questions.length === 0 && gap.description) {
@@ -406,6 +438,19 @@ export default function KnowledgeGaps() {
           )}
           {gap.flagged && (
             <span style={{ fontSize: '14px' }}>🚩</span>
+          )}
+          {/* Relevance Score */}
+          {gap.quality_score !== undefined && gap.quality_score > 0 && (
+            <span style={{
+              padding: '4px 10px',
+              backgroundColor: gap.quality_score >= 0.7 ? '#D1FAE5' : gap.quality_score >= 0.4 ? '#FEF3C7' : '#F3F4F6',
+              color: gap.quality_score >= 0.7 ? '#065F46' : gap.quality_score >= 0.4 ? '#92400E' : colors.textMuted,
+              fontSize: '11px',
+              fontWeight: 600,
+              borderRadius: '12px',
+            }}>
+              {(gap.quality_score * 5).toFixed(1)}/5
+            </span>
           )}
           <span style={{
             marginLeft: 'auto',
