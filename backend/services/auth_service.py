@@ -16,7 +16,7 @@ import bcrypt
 from sqlalchemy.orm import Session
 
 from database.models import (
-    User, UserSession, Tenant, AuditLog,
+    User, UserSession, Tenant, AuditLog, PasswordResetToken,
     UserRole, TenantPlan,
     generate_uuid, utc_now
 )
@@ -796,6 +796,173 @@ class AuthService:
             (path / "embeddings").mkdir(exist_ok=True)
             (path / "videos").mkdir(exist_ok=True)
             (path / "audio").mkdir(exist_ok=True)
+
+    # ========================================================================
+    # PASSWORD RESET
+    # ========================================================================
+
+    def request_password_reset(
+        self,
+        email: str,
+        ip_address: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Request a password reset.
+
+        Returns (success, reset_token or error).
+        Token is logged to console for testing.
+        """
+        try:
+            # Find user by email (case insensitive)
+            user = self.db.query(User).filter(
+                User.email.ilike(email),
+                User.is_active == True
+            ).first()
+
+            if not user:
+                # Don't reveal if user exists - just log and return success
+                print(f"[Auth] Password reset requested for non-existent email: {email}", flush=True)
+                return True, None
+
+            # Check if tenant is active
+            if not user.tenant.is_active:
+                print(f"[Auth] Password reset blocked - tenant inactive: {user.tenant_id}", flush=True)
+                return True, None
+
+            # Invalidate any existing reset tokens for this user
+            self.db.query(PasswordResetToken).filter(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used == False
+            ).update({"used": True, "used_at": utc_now()})
+
+            # Generate new token
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+            # Create reset token (expires in 1 hour)
+            expires_at = utc_now() + timedelta(hours=1)
+            reset_token = PasswordResetToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+                ip_address=ip_address
+            )
+            self.db.add(reset_token)
+
+            self._log_action(
+                tenant_id=user.tenant_id,
+                user_id=user.id,
+                action="user.password_reset_requested",
+                resource_type="user",
+                resource_id=user.id,
+                ip_address=ip_address
+            )
+
+            self.db.commit()
+
+            # Log token to console for testing
+            # In production, send email instead
+            print(f"\n{'='*60}", flush=True)
+            print(f"PASSWORD RESET TOKEN FOR: {email}", flush=True)
+            print(f"Token: {raw_token}", flush=True)
+            print(f"Expires: {expires_at.isoformat()}", flush=True)
+            print(f"Reset URL: http://localhost:3006/reset-password?token={raw_token}", flush=True)
+            print(f"{'='*60}\n", flush=True)
+
+            return True, raw_token
+
+        except Exception as e:
+            self.db.rollback()
+            print(f"[Auth] Password reset error: {e}", flush=True)
+            return False, str(e)
+
+    def verify_reset_token(self, token: str) -> bool:
+        """Verify if a password reset token is valid."""
+        try:
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+            reset_token = self.db.query(PasswordResetToken).filter(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used == False,
+                PasswordResetToken.expires_at > utc_now()
+            ).first()
+
+            return reset_token is not None
+
+        except Exception:
+            return False
+
+    def reset_password(
+        self,
+        token: str,
+        new_password: str,
+        ip_address: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Reset password using reset token.
+
+        Returns (success, error_message).
+        """
+        try:
+            # Validate new password
+            is_valid, errors = PasswordUtils.validate_password_strength(new_password)
+            if not is_valid:
+                return False, f"Password does not meet requirements: {', '.join(errors)}"
+
+            # Find token
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            reset_token = self.db.query(PasswordResetToken).filter(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used == False
+            ).first()
+
+            if not reset_token:
+                return False, "Invalid or expired reset token"
+
+            if reset_token.expires_at < utc_now():
+                return False, "Reset token has expired"
+
+            # Get user
+            user = self.db.query(User).filter(User.id == reset_token.user_id).first()
+            if not user or not user.is_active:
+                return False, "User not found or inactive"
+
+            # Update password
+            user.password_hash = PasswordUtils.hash_password(new_password)
+            user.failed_login_attempts = 0
+            user.locked_until = None
+
+            # Mark token as used
+            reset_token.used = True
+            reset_token.used_at = utc_now()
+
+            # Revoke all existing sessions (logout everywhere)
+            self.db.query(UserSession).filter(
+                UserSession.user_id == user.id,
+                UserSession.is_revoked == False
+            ).update({
+                "is_revoked": True,
+                "revoked_at": utc_now(),
+                "revoked_reason": "password_reset"
+            })
+
+            self._log_action(
+                tenant_id=user.tenant_id,
+                user_id=user.id,
+                action="user.password_reset_completed",
+                resource_type="user",
+                resource_id=user.id,
+                ip_address=ip_address
+            )
+
+            self.db.commit()
+
+            print(f"[Auth] Password reset successful for user: {user.email}", flush=True)
+            return True, None
+
+        except Exception as e:
+            self.db.rollback()
+            return False, str(e)
 
     def _log_action(
         self,

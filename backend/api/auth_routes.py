@@ -3,7 +3,7 @@ Authentication API Routes
 REST endpoints for user authentication, registration, and session management.
 """
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, make_response
 from sqlalchemy.orm import Session
 
 from database.models import SessionLocal, User, Tenant
@@ -15,10 +15,100 @@ from services.validators import (
     validate_signup_data, validate_login_data,
     EmailValidator, PasswordValidator
 )
+from middleware.csrf import (
+    get_csrf_token_endpoint,
+    add_csrf_to_response,
+    generate_csrf_token,
+    CSRF_COOKIE_NAME
+)
 
 
 # Create blueprint
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+
+# Cookie configuration
+ACCESS_TOKEN_COOKIE = "accessToken"
+REFRESH_TOKEN_COOKIE = "refreshToken"
+COOKIE_MAX_AGE_ACCESS = 15 * 60  # 15 minutes
+COOKIE_MAX_AGE_REFRESH = 7 * 24 * 60 * 60  # 7 days
+
+
+def is_secure_request():
+    """Check if request is over HTTPS"""
+    return request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https'
+
+
+def set_auth_cookies(response, access_token: str, refresh_token: str):
+    """
+    Set httpOnly cookies for authentication tokens.
+    Also sets CSRF token cookie.
+    """
+    secure = is_secure_request()
+
+    # Access token cookie (shorter lived)
+    response.set_cookie(
+        ACCESS_TOKEN_COOKIE,
+        access_token,
+        httponly=True,
+        secure=secure,
+        samesite='Lax',
+        max_age=COOKIE_MAX_AGE_ACCESS,
+        path='/'
+    )
+
+    # Refresh token cookie (longer lived)
+    response.set_cookie(
+        REFRESH_TOKEN_COOKIE,
+        refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite='Lax',
+        max_age=COOKIE_MAX_AGE_REFRESH,
+        path='/'
+    )
+
+    # Set CSRF token
+    csrf_token = generate_csrf_token()
+    response.set_cookie(
+        CSRF_COOKIE_NAME,
+        csrf_token,
+        httponly=False,  # Must be readable by JavaScript
+        secure=secure,
+        samesite='Lax',
+        max_age=COOKIE_MAX_AGE_ACCESS,
+        path='/'
+    )
+
+    return response
+
+
+def clear_auth_cookies(response):
+    """Clear all auth-related cookies"""
+    response.delete_cookie(ACCESS_TOKEN_COOKIE, path='/')
+    response.delete_cookie(REFRESH_TOKEN_COOKIE, path='/')
+    response.delete_cookie(CSRF_COOKIE_NAME, path='/')
+    return response
+
+
+def get_refresh_token_from_request():
+    """
+    Get refresh token from multiple sources:
+    1. Cookie (preferred)
+    2. Authorization header
+    3. Request body
+    """
+    # Check cookie first
+    token = request.cookies.get(REFRESH_TOKEN_COOKIE)
+    if token:
+        return token
+
+    # Check request body
+    data = request.get_json(silent=True)
+    if data and data.get('refresh_token'):
+        return data['refresh_token']
+
+    return None
 
 
 def get_db():
@@ -122,7 +212,8 @@ def signup():
                     "error_code": result.error_code
                 }), 400
 
-            return jsonify({
+            # Create response with tokens in body
+            response_data = {
                 "success": True,
                 "user": result.user.to_dict(),
                 "tenant": result.user.tenant.to_dict(),
@@ -132,7 +223,18 @@ def signup():
                     "token_type": result.tokens.token_type,
                     "expires_in": 604800  # 7 days in seconds
                 }
-            }), 201
+            }
+
+            response = make_response(jsonify(response_data), 201)
+
+            # Set httpOnly cookies
+            response = set_auth_cookies(
+                response,
+                result.tokens.access_token,
+                result.tokens.refresh_token
+            )
+
+            return response
 
         finally:
             db.close()
@@ -209,7 +311,8 @@ def login():
                     "error_code": result.error_code
                 }), status_code
 
-            return jsonify({
+            # Create response with tokens in body
+            response_data = {
                 "success": True,
                 "user": result.user.to_dict(),
                 "tenant": result.user.tenant.to_dict(),
@@ -219,7 +322,18 @@ def login():
                     "token_type": result.tokens.token_type,
                     "expires_in": 604800
                 }
-            })
+            }
+
+            response = make_response(jsonify(response_data))
+
+            # Set httpOnly cookies
+            response = set_auth_cookies(
+                response,
+                result.tokens.access_token,
+                result.tokens.refresh_token
+            )
+
+            return response
 
         finally:
             db.close()
@@ -240,10 +354,9 @@ def refresh_token():
     """
     Refresh access token using refresh token.
 
-    Request body:
-    {
-        "refresh_token": "..."
-    }
+    Accepts refresh token from:
+    1. Cookie (preferred)
+    2. Request body: { "refresh_token": "..." }
 
     Response:
     {
@@ -252,9 +365,10 @@ def refresh_token():
     }
     """
     try:
-        data = request.get_json()
+        # Get refresh token from multiple sources
+        token = get_refresh_token_from_request()
 
-        if not data or not data.get('refresh_token'):
+        if not token:
             return jsonify({
                 "success": False,
                 "error": "Refresh token is required"
@@ -266,19 +380,23 @@ def refresh_token():
         try:
             auth_service = AuthService(db)
             result = auth_service.refresh_tokens(
-                data['refresh_token'],
+                token,
                 ip,
                 user_agent
             )
 
             if not result.success:
-                return jsonify({
+                # Clear cookies on refresh failure
+                response = make_response(jsonify({
                     "success": False,
                     "error": result.error,
                     "error_code": result.error_code
-                }), 401
+                }), 401)
+                response = clear_auth_cookies(response)
+                return response
 
-            return jsonify({
+            # Create response with new tokens
+            response_data = {
                 "success": True,
                 "tokens": {
                     "access_token": result.tokens.access_token,
@@ -286,7 +404,18 @@ def refresh_token():
                     "token_type": result.tokens.token_type,
                     "expires_in": 604800
                 }
-            })
+            }
+
+            response = make_response(jsonify(response_data))
+
+            # Set new httpOnly cookies
+            response = set_auth_cookies(
+                response,
+                result.tokens.access_token,
+                result.tokens.refresh_token
+            )
+
+            return response
 
         finally:
             db.close()
@@ -307,8 +436,9 @@ def logout():
     """
     Logout current session.
 
-    Headers:
-        Authorization: Bearer <access_token>
+    Accepts token from:
+    1. Cookie (preferred)
+    2. Authorization header
 
     Response:
     {
@@ -316,23 +446,31 @@ def logout():
     }
     """
     try:
-        token = get_token_from_header(request.headers.get("Authorization", ""))
-
+        # Try to get token from cookie first, then header
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE)
         if not token:
-            return jsonify({"success": True})
+            token = get_token_from_header(request.headers.get("Authorization", ""))
 
         ip, _ = get_client_info()
 
-        db = get_db()
-        try:
-            auth_service = AuthService(db)
-            auth_service.logout(token, ip)
-            return jsonify({"success": True})
-        finally:
-            db.close()
+        if token:
+            db = get_db()
+            try:
+                auth_service = AuthService(db)
+                auth_service.logout(token, ip)
+            finally:
+                db.close()
+
+        # Always clear cookies on logout
+        response = make_response(jsonify({"success": True}))
+        response = clear_auth_cookies(response)
+        return response
 
     except Exception:
-        return jsonify({"success": True})
+        # Always clear cookies even on error
+        response = make_response(jsonify({"success": True}))
+        response = clear_auth_cookies(response)
+        return response
 
 
 @auth_bp.route('/logout-all', methods=['POST'])
@@ -679,6 +817,197 @@ def revoke_session(session_id):
             db.commit()
 
             return jsonify({"success": True})
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================================
+# CSRF TOKEN
+# ============================================================================
+
+@auth_bp.route('/csrf-token', methods=['GET'])
+def csrf_token():
+    """
+    Get a new CSRF token.
+
+    Response:
+    {
+        "success": true,
+        "csrf_token": "..."
+    }
+
+    Also sets csrf_token cookie.
+    """
+    return get_csrf_token_endpoint()
+
+
+# ============================================================================
+# PASSWORD RESET
+# ============================================================================
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    """
+    Request password reset email.
+
+    Request body:
+    {
+        "email": "user@example.com"
+    }
+
+    Response:
+    {
+        "success": true,
+        "message": "If an account exists, a reset link has been sent"
+    }
+
+    Note: Always returns success to prevent email enumeration.
+    Reset token is logged to console for testing.
+    """
+    try:
+        data = request.get_json()
+
+        if not data or not data.get('email'):
+            return jsonify({
+                "success": False,
+                "error": "Email is required"
+            }), 400
+
+        email = EmailValidator.normalize(data['email'])
+
+        db = get_db()
+        try:
+            auth_service = AuthService(db)
+            result = auth_service.request_password_reset(email)
+
+            # Always return success to prevent email enumeration
+            return jsonify({
+                "success": True,
+                "message": "If an account exists with this email, a password reset link has been sent."
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        # Still return success to prevent enumeration
+        print(f"[Auth] Password reset error: {e}", flush=True)
+        return jsonify({
+            "success": True,
+            "message": "If an account exists with this email, a password reset link has been sent."
+        })
+
+
+@auth_bp.route('/verify-reset-token', methods=['GET'])
+def verify_reset_token():
+    """
+    Verify if a password reset token is valid.
+
+    Query params:
+        token: The reset token
+
+    Response:
+    {
+        "success": true,
+        "valid": true
+    }
+    """
+    try:
+        token = request.args.get('token')
+
+        if not token:
+            return jsonify({
+                "success": False,
+                "error": "Token is required"
+            }), 400
+
+        db = get_db()
+        try:
+            auth_service = AuthService(db)
+            is_valid = auth_service.verify_reset_token(token)
+
+            return jsonify({
+                "success": True,
+                "valid": is_valid
+            })
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    """
+    Reset password using reset token.
+
+    Request body:
+    {
+        "token": "reset-token-here",
+        "new_password": "NewSecurePassword123"
+    }
+
+    Response:
+    {
+        "success": true
+    }
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body is required"
+            }), 400
+
+        token = data.get('token')
+        new_password = data.get('new_password')
+
+        if not token or not new_password:
+            return jsonify({
+                "success": False,
+                "error": "Token and new password are required"
+            }), 400
+
+        # Validate new password
+        is_valid, error = PasswordValidator.validate(new_password)
+        if not is_valid:
+            return jsonify({
+                "success": False,
+                "error": error,
+                "error_code": "WEAK_PASSWORD"
+            }), 400
+
+        ip, _ = get_client_info()
+
+        db = get_db()
+        try:
+            auth_service = AuthService(db)
+            success, error = auth_service.reset_password(token, new_password, ip)
+
+            if not success:
+                return jsonify({
+                    "success": False,
+                    "error": error
+                }), 400
+
+            return jsonify({
+                "success": True,
+                "message": "Password has been reset successfully. Please log in with your new password."
+            })
 
         finally:
             db.close()

@@ -326,6 +326,50 @@ class UserSession(Base):
 
 
 # ============================================================================
+# PASSWORD RESET TOKEN MODEL
+# ============================================================================
+
+class PasswordResetToken(Base):
+    """
+    Password reset tokens for secure password recovery.
+    Tokens are stored hashed (SHA-256) and expire after 1 hour.
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+
+    # Token (stored as SHA-256 hash)
+    token_hash = Column(String(255), nullable=False, unique=True, index=True)
+
+    # Expiration
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    # Usage tracking
+    used = Column(Boolean, default=False)
+    used_at = Column(DateTime(timezone=True))
+
+    # Audit
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    ip_address = Column(String(45))  # IP that requested the reset
+
+    # Relationships
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<PasswordResetToken {self.id[:8]}...>"
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if token is valid (not used and not expired)"""
+        if self.used:
+            return False
+        if self.expires_at < utc_now():
+            return False
+        return True
+
+
+# ============================================================================
 # CONNECTOR MODEL (Integrations)
 # ============================================================================
 

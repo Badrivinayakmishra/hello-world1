@@ -130,7 +130,14 @@ Respond in JSON format:
 
     def __init__(self, db: Session):
         self.db = db
-        self.client = get_openai_client()
+        self._client = None  # Lazy initialization
+
+    @property
+    def client(self):
+        """Lazy load OpenAI client only when needed"""
+        if self._client is None:
+            self._client = get_openai_client()
+        return self._client
 
     # ========================================================================
     # DOCUMENT CONTENT PREPARATION (for Knowledge Gap Analysis)
